@@ -36,6 +36,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(DEBUG)  /* for sleep() function */
+#include <unistd.h>
+#endif
 /*----------------------------------------------------------------------------
  *  Local headers
  *----------------------------------------------------------------------------*/
@@ -278,7 +281,13 @@ _run(void)
      may have the option of assigning a name to this instance. */
 
 #if defined(HAVE_MPI)
+#if defined(HAVE_DAMARIS)
+  bft_printf(_("\nDAMARIS USAGE WARNING: Coupled processing is not tested \
+    currently when using Code_Saturne with Damaris I/O support, so is disabled\n"));
+    /* cs_exit(EXIT_FAILURE); */
+#else
   cs_coupling_discover_mpi_apps(opts.app_name, NULL);
+#endif
 #endif
 
   if (opts.app_name != NULL)
@@ -579,8 +588,14 @@ int
 main(int    argc,
      char  *argv[])
 {
-  /* Initialize wall clock timer */
 
+
+#if defined(DEBUG)  /* Add so we can attched debugger in eclipse */
+  printf("About to call sleep(1)\n") ;
+  sleep(1) ;
+#endif
+
+  /* Initialize wall clock timer */
   (void)cs_timer_wtime();
 
   /* First analysis of the command line to determine if MPI is required,

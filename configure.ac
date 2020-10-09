@@ -693,6 +693,7 @@ CS_AC_TEST_ZLIB
 CS_AC_TEST_MEDCOUPLING
 CS_AC_TEST_CATALYST
 CS_AC_TEST_MELISSA
+CS_AC_TEST_DAMARIS
 CS_AC_TEST_MUMPS
 CS_AC_TEST_PETSC
 
@@ -714,6 +715,8 @@ elif test x$cs_have_medcoupling = xyes -o x$cs_have_paramedmem = xyes ; then
     cs_have_link_cxx=yes
   fi
 elif test x$cs_have_eos = xyes ; then
+  cs_have_link_cxx=yes
+elif test x$cs_have_damaris = xyes ; then
   cs_have_link_cxx=yes
 elif test x$cs_have_coolprop = xyes ; then
   cs_have_link_cxx=yes
@@ -1282,6 +1285,7 @@ if (test x$cs_have_doxygen = xyes) ; then
   echo "   dot (Graphviz) available: "$cs_have_dot""
   echo "   MathJax enabled: "$cs_enable_mathjax""
 fi
+echo " Damaris (asynchronous I/O) support: "$cs_have_damaris""
 echo
 echo "The package has been configured. Type:"
 echo " make"

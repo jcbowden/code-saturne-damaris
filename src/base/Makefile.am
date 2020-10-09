@@ -52,7 +52,8 @@ AM_CPPFLAGS = \
 -I$(top_srcdir)/src/atmo \
 $(CPPFLAGS_PLE) \
 $(FREESTEAM_CPPFLAGS) \
-$(MPI_CPPFLAGS)
+$(MPI_CPPFLAGS) \
+$(DAMARIS_CPPFLAGS)
 
 AM_CFLAGS = $(CFLAGS_DBG) $(CFLAGS_OPT)
 AM_CXXFLAGS = $(CXXFLAGS_STD) $(CXXFLAGS_DBG) $(CXXFLAGS_OPT)
@@ -489,6 +490,9 @@ cs_eos_la_SOURCES = cs_eos.cxx
 cs_eos_la_LDFLAGS = -module -avoid-version
 
 endif
+
+
+
 
 if HAVE_COOLPROP
 

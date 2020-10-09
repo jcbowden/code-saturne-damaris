@@ -58,6 +58,9 @@
 #include <setjmp.h>
 #endif
 
+#if defined(HAVE_DAMARIS)
+#include <Damaris.h>
+#endif
 /*----------------------------------------------------------------------------
  * PLE library headers
  *----------------------------------------------------------------------------*/
@@ -482,6 +485,9 @@ _cs_base_exit(int status)
       else { /*  if (status == EXIT_SUCCESS) */
 
         MPI_Barrier(MPI_COMM_WORLD);
+#if defined(HAVE_DAMARIS)
+        damaris_finalize() ;
+#endif    
         MPI_Finalize();
 
       }
@@ -971,7 +977,7 @@ static void
 _cs_base_mpi_setup(const char *app_name)
 {
   int nbr, rank;
-
+  int damaris_is_client ;
   int app_num = -1;
 
 #if (defined(DEBUG) || !defined(NDEBUG)) && (MPI_VERSION >= 2)
@@ -990,10 +996,30 @@ _cs_base_mpi_setup(const char *app_name)
 
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-  if (app_num > -1)
-    MPI_Comm_split(MPI_COMM_WORLD, app_num, rank, &cs_glob_mpi_comm);
-  else
+  if (app_num > -1){
+
+#if defined(HAVE_DAMARIS)
+    _cs_base_err_printf(_("\nDAMARIS error: Coupled processing is not tested \
+    currently when using Code_Saturne with Damaris I/O support\n"));
+    cs_exit(EXIT_FAILURE); 
+#endif
+     MPI_Comm_split(MPI_COMM_WORLD, app_num, rank, &cs_glob_mpi_comm);
+
+  }
+  else {
+#if defined(HAVE_DAMARIS)
+   (void)damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
+   
+   damaris_start(&damaris_is_client) ;
+   
+   if ( damaris_is_client ) {
+      damaris_client_comm_get (&cs_glob_mpi_comm) ;
+   }
+    
+#else
     cs_glob_mpi_comm = MPI_COMM_WORLD;
+#endif
+  }
 
   MPI_Comm_size(cs_glob_mpi_comm, &nbr);
   MPI_Comm_rank(cs_glob_mpi_comm, &rank);

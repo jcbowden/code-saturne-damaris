@@ -111,6 +111,7 @@ m4/cs_petsc.m4 \
 m4/cs_ple.m4 \
 m4/cs_salome.m4 \
 m4/cs_scotch.m4 \
+m4/cs_damaris.m4 \
 m4/cs_zlib.m4
 
 # One adds several sub-directories with a dist-hook.

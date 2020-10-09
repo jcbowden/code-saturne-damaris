@@ -28,11 +28,11 @@ AM_CPPFLAGS = \
 -I$(top_srcdir)/src/base \
 -I$(top_srcdir)/src/bft \
 -I$(top_srcdir)/src/mesh \
-$(MPI_CPPFLAGS)
+$(MPI_CPPFLAGS) $(DAMARIS_CPPFLAGS)
 AM_CFLAGS = $(CFLAGS_DBG) $(CFLAGS_OPT)
 AM_CXXFLAGS = $(CXXFLAGS_STD) $(CXXFLAGS_DBG) $(CXXFLAGS_OPT)
 AM_LDFLAGS = $(CCM_LDFLAGS) $(CGNS_LDFLAGS) $(MED_LDFLAGS) \
-$(HDF5_LDFLAGS) $(MPI_LDFLAGS)
+$(HDF5_LDFLAGS) $(DAMARIS_LDFLAGS) $(MPI_LDFLAGS)
 
 # Conditionally compiled extensions
 
