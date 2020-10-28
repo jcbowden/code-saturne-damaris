@@ -66,6 +66,7 @@
 /* Headers for available writers (could be replaced by plugin system) */
 
 #include "fvm_to_ccm.h"
+#include "fvm_to_damaris.h"
 #include "fvm_to_cgns.h"
 #include "fvm_to_med.h"
 #include "fvm_to_ensight.h"
@@ -107,9 +108,9 @@ BEGIN_C_DECLS
 
 /* Number and status of defined formats */
 
-static const int _fvm_writer_n_formats = 10;
+static const int _fvm_writer_n_formats = 11;
 
-static fvm_writer_format_t _fvm_writer_format_list[10] = {
+static fvm_writer_format_t _fvm_writer_format_list[11] = {
 
   /* Built-in EnSight Gold writer */
   {
@@ -423,7 +424,42 @@ static fvm_writer_format_t _fvm_writer_format_list[10] = {
     NULL,
     NULL
 #endif
-  }
+  },
+
+  /* Damaris Catalyst writer */
+  {
+    "Damaris",
+      "3.2+",
+      (  FVM_WRITER_FORMAT_USE_EXTERNAL
+       | FVM_WRITER_FORMAT_HAS_POLYGON
+       | FVM_WRITER_FORMAT_HAS_POLYHEDRON),
+      FVM_WRITER_FIXED_MESH,
+      0,                                 /* dynamic library count */
+      NULL,                              /* dynamic library */
+      NULL,                              /* dynamic library name */
+      NULL,                              /* dynamic library prefix */
+  #if defined(HAVE_DAMARIS)
+	  NULL,                              /* n_version_strings_func */
+	  NULL,                              /* version_string_func */
+      fvm_to_damaris_init_writer,        /* init_func */
+      fvm_to_damaris_finalize_writer,    /* finalize_func */
+      fvm_to_damaris_set_mesh_time,      /* set_mesh_time_func */
+      NULL,                              /* needs_tesselation_func */
+      fvm_to_damaris_export_nodal,       /* export_nodal_func */
+      fvm_to_damaris_export_field,       /* export_field_func */
+      NULL                               /* flush_func */
+  #else
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL
+  #endif
+    }
 
 };
 
@@ -839,6 +875,8 @@ fvm_writer_get_format_id(const char  *format_name)
     strcpy(closest_name, "Catalyst");
   else if (strncmp(tmp_name, "ccm", 3) == 0)
     strcpy(closest_name, "CCM-IO");
+  else if (strncmp(tmp_name, "damaris", 7) == 0)
+    strcpy(closest_name, "Damaris");
   else if (strncmp(tmp_name, "melissa", 7) == 0)
     strcpy(closest_name, "Melissa");
   else

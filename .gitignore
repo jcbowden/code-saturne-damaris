@@ -39,6 +39,12 @@ Makefile.in
 /cs_config.h.in
 /configure
 /stamp-h.in
+/.autotools
+/.cproject
+/.project
+/.settings/
+/config.log
+
 
 # /config/
 /config/compile

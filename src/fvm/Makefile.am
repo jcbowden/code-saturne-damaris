@@ -89,6 +89,7 @@ fvm_to_ensight_case.h \
 fvm_to_histogram.h \
 fvm_to_medcoupling.h \
 fvm_to_melissa.h \
+fvm_to_damaris.h \
 fvm_to_vtk_histogram.h \
 fvm_to_plot.h \
 fvm_to_time_plot.h \
@@ -199,6 +200,23 @@ libfvm_filters_la_LIBADD += libfvm_medcoupling.la
 
 endif
 
+endif
+
+if HAVE_DAMARIS
+libfvm_damaris_la_CPPFLAGS = \
+-I$(top_srcdir)/src/base \
+-I$(top_srcdir)/src/bft \
+-I$(top_srcdir)/src/mesh \
+$(DAMARIS_CPPFLAGS) $(MPI_CPPFLAGS)
+libfvm_damaris_la_CFLAGS = \
+$(CFLAGS_DBG) $(CFLAGS_OPT) \
+$(DAMARIS_CFLAGS)
+libfvm_melissa_la_LIBADD = \
+$(DAMARIS_LDFLAGS) $(DAMARIS_LIBS) \
+$(DAMARISRUNPATH)
+libfvm_damaris_la_SOURCES = fvm_to_damaris.c
+noinst_LTLIBRARIES += libfvm_damaris.la
+libfvm_filters_la_LIBADD += libfvm_damaris.la
 endif
 
 # Catalyst (plugin or linked)

@@ -977,8 +977,10 @@ static void
 _cs_base_mpi_setup(const char *app_name)
 {
   int nbr, rank;
-  int damaris_is_client ;
   int app_num = -1;
+
+  int damaris_is_client ;
+  int damaris_err ;
 
 #if (defined(DEBUG) || !defined(NDEBUG)) && (MPI_VERSION >= 2)
   MPI_Errhandler errhandler;
@@ -1000,7 +1002,7 @@ _cs_base_mpi_setup(const char *app_name)
 
 #if defined(HAVE_DAMARIS)
     _cs_base_err_printf(_("\nDAMARIS error: Coupled processing is not tested \
-    currently when using Code_Saturne with Damaris I/O support\n"));
+currently when using Code_Saturne with Damaris I/O support\n"));
     cs_exit(EXIT_FAILURE); 
 #endif
      MPI_Comm_split(MPI_COMM_WORLD, app_num, rank, &cs_glob_mpi_comm);
@@ -1008,12 +1010,25 @@ _cs_base_mpi_setup(const char *app_name)
   }
   else {
 #if defined(HAVE_DAMARIS)
-   (void)damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
-   
-   damaris_start(&damaris_is_client) ;
+   int damaris_err = damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
+
+   if (damaris_err != DAMARIS_OK ) {
+	   _cs_base_err_printf(_("\nDAMARIS error: damaris_initialize() failed\n"));
+	   cs_exit(damaris_err);
+   }
+
+   damaris_err = damaris_start(&damaris_is_client) ;
+   if (! (damaris_err == DAMARIS_OK || damaris_err ==  DAMARIS_NO_SERVER) ) {
+   	   _cs_base_err_printf(_("\nDAMARIS error: damaris_start() failed\n"));
+   	   cs_exit(damaris_err);
+      }
    
    if ( damaris_is_client ) {
-      damaris_client_comm_get (&cs_glob_mpi_comm) ;
+	   damaris_err = damaris_client_comm_get (&cs_glob_mpi_comm) ;
+	   if (damaris_err != DAMARIS_OK ) {
+	   	   _cs_base_err_printf(_("\nDAMARIS error: damaris_client_comm_get() failed\n"));
+	   	   cs_exit(damaris_err);
+	   }
    }
     
 #else

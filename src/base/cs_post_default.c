@@ -37,6 +37,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+
+/*----------------------------------------------------------------------------
+ * Asynchronous I/O and in-situ visulisation library header
+ *----------------------------------------------------------------------------*/
+
+#if defined(HAVE_DAMARIS)
+#include <Damaris.h>
+#endif
+
 /*----------------------------------------------------------------------------
  * Local headers
  *----------------------------------------------------------------------------*/
@@ -398,6 +407,11 @@ void CS_PROCF (pstvar, PSTVAR)
     cs_post_write_vars(cs_glob_time_step);
   else
     cs_post_write_vars(NULL);
+
+#if defined(HAVE_DAMARIS)
+    damaris_end_iteration();
+#endif
+
 }
 
 /*============================================================================
