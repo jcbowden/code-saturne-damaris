@@ -484,7 +484,7 @@ _cs_base_exit(int status)
 
       else { /*  if (status == EXIT_SUCCESS) */
 
-        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(cs_glob_mpi_comm);  // was : MPI_Barrier(MPI_COMM_WORLD);
 #if defined(HAVE_DAMARIS)
         damaris_finalize() ;
 #endif    

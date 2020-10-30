@@ -374,6 +374,12 @@ _run(void)
                                  cs_glob_mesh,
                                  cs_glob_mesh_quantities);
 
+
+    /* Set up Damaris mesh extents */
+#if defined(HAVE_DAMARIS)
+    cs_preprocess_set_damaris_param_from_mesh(cs_glob_mesh) ;
+#endif
+
     /* Initialize gradient computation */
 
     cs_gradient_initialize();
@@ -576,6 +582,10 @@ _run(void)
 
   cs_base_time_summary();
   cs_base_mem_finalize();
+
+#if defined(HAVE_DAMARIS)
+  damaris_stop();
+#endif
 
   cs_log_printf_flush(CS_LOG_N_TYPES);
 }

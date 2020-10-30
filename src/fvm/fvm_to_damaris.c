@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 /*----------------------------------------------------------------------------
  * Statistics library header
@@ -215,34 +216,72 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
                       values + start_id);
 */
     //if (dim == 1)
-    if ( strncmp( fieldname, "pressure", 8) == 0 )
+    int t1 = 0;
+    char fieldname_lwrcase[9];
+    while ( (t1<8)  && fieldname[t1])
+    {
+    	fieldname_lwrcase[t1] = tolower(fieldname[t1]);
+    	t1++;
+    }
+
+
+    int damaris_err = DAMARIS_OK ;
+
+    int param_z ;
+	damaris_err = damaris_parameter_get("z",&param_z,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		bft_error(__FILE__, __LINE__, damaris_err,
+							 _("ERROR: Damaris damaris_parameter_get():\n"
+							   "Parameter: \"%s\"."), "z");
+	}
+
+    if ( strncmp( fieldname_lwrcase, "pressure", 8) == 0 )
     {
 		int64_t pos[3];
-		int our_z ;
-		damaris_parameter_get("z",&our_z,sizeof(int));
-		pos[0] = cs_glob_rank_id*our_z;
+
+		pos[0] = cs_glob_rank_id*param_z/cs_glob_n_ranks;
 		pos[1] = 0;
 		pos[2] = 0;
 
-		damaris_set_position("pressure" , pos);
-		damaris_write("pressure" ,field_values[0]);
+		damaris_err = damaris_set_position("fields/pressure" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/pressure");
+		}
+		damaris_err = damaris_write("fields/pressure" ,field_values[0]);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/pressure");
+		}
 
     }
     //else if (dim == 3)
-    else if ( strncmp( fieldname, "velocity", 8) == 0 )
+    else if ( strncmp( fieldname_lwrcase, "velocity", 8) == 0 )
     {
     	int64_t pos[4];
-		int our_z ;
-		damaris_parameter_get("z",&our_z,sizeof(int));
-		pos[0] = cs_glob_rank_id*our_z;
-		pos[1] = 0;
+
+		pos[0] = 0;
+		pos[1] = (cs_glob_rank_id*param_z/cs_glob_n_ranks);
 		pos[2] = 0;
 		pos[3] = 0;
 
-		damaris_set_position("velocity" , pos);
-		damaris_write("velocity" ,field_values[0]);
+		damaris_err = damaris_set_position("fields/velocity" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/velocity");
+		}
+		damaris_err = damaris_write("fields/velocity" ,field_values[0]);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/velocity");
+		}
 		// damaris_end_iteration();
     }
+
 
     start_id += section->n_elements*dest_dim;
     if (n_parent_lists == 0)
@@ -318,6 +357,108 @@ fvm_to_damaris_init_writer(const char             *name,
   int rank_step = 1;
   bool trace = false;
   bool dry_run = false;
+
+
+
+	/* Initializing the mesh coordinates for a rectilinear mesh
+	*   N.B. This should be done after reading the input mesh so
+	*   that the actual mesh dimensions can be used and set with
+	*   damaris_parameter_set(). Our problem is that the writers
+	*   are initialized before the mesh is read in, so we cannot
+	*   use the mesh information here!
+	*/
+  /*
+	int damaris_err = DAMARIS_OK ;
+	double x_length ;
+	int segments_x, segments_y, segments_z, segments_z_per_rank ;
+
+	damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+									 _("ERROR: Damaris damaris_parameter_set():\n"
+									   "paramater: \"%s\"."), "cs_glob_n_ranks");
+	}
+
+	damaris_err = damaris_parameter_get("x",&segments_x,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+							 _("ERROR: Damaris damaris_parameter_get():\n"
+							   "Parameter: \"%s\"."), "x");
+	}
+	damaris_err = damaris_parameter_get("y",&segments_y,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+							 _("ERROR: Damaris damaris_parameter_get():\n"
+							   "Parameter: \"%s\"."), "y");
+	}
+	damaris_err = damaris_parameter_get("z",&segments_z,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_parameter_get():\n"
+								   "Parameter: \"%s\"."), "z");
+	}
+	damaris_err = damaris_parameter_get("x_length",&x_length,sizeof(double));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_parameter_get():\n"
+								   "Parameter: \"%s\"."), "x_length");
+	}
+
+	double* meshx;
+	double* meshy;
+	double* meshz;
+
+	/* the z direction is distributed over mpi ranks /
+	segments_z_per_rank = segments_z/cs_glob_n_ranks;
+
+	BFT_MALLOC(meshx, segments_x, double);
+	BFT_MALLOC(meshy, segments_y, double);
+	BFT_MALLOC(meshz, segments_z_per_rank, double);
+
+	/* these dimensions are governed by the mesh creation script mesh_cube_xyz.py /
+	double x_step, y_step, z_step ;
+	double y_length, z_length ;
+	y_length = x_length / 2.0;
+	z_length = (segments_z / segments_x) * x_length;
+
+	x_step = x_length / segments_x;
+	y_step = y_length / segments_y;
+	z_step = z_length / segments_z;
+
+	for(int i=0; i<segments_x+1 ; i++)
+		meshx[i] = i*x_step;
+
+	for(int j=0; j<segments_y+1 ; j++)
+		meshy[j] = j*y_step;
+
+	double offset = cs_glob_rank_id * segments_z_per_rank * z_step;
+	for(int k=0; k<segments_z_per_rank+1 ; k++)
+		meshz[k] = offset + (k * z_step);
+
+	damaris_err = damaris_write("coord/meshx" , meshx);
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "Variable: \"%s\"."), "coord/meshx");
+	}
+	damaris_err = damaris_write("coord/meshy" , meshy);
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "Variable: \"%s\"."), "coord/meshy");
+	}
+	damaris_err = damaris_write("coord/meshz" , meshz);
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "Variable: \"%s\"."), "coord/meshz");
+	}
+
+	BFT_FREE(meshx); ;
+	BFT_FREE(meshy);
+	BFT_FREE(meshz);
+*/
+
 
   if (options != NULL) {
 

@@ -169,6 +169,107 @@ extern void cs_f_majgeo(const cs_lnum_t    *ncel,
  * Public function definitions
  *============================================================================*/
 
+
+#if defined(HAVE_DAMARIS)
+void
+cs_preprocess_set_damaris_param_from_mesh(cs_mesh_t *m)
+{
+
+	int damaris_err = DAMARIS_OK ;
+	double x_length ;
+	int segments_x, segments_y, segments_z, segments_z_per_rank ;
+
+	damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+									 _("ERROR: Damaris damaris_parameter_set():\n"
+									   "paramater: \"%s\"."), "cs_glob_n_ranks");
+	}
+
+	damaris_err = damaris_parameter_get("x",&segments_x,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+							 _("ERROR: Damaris damaris_parameter_get():\n"
+							   "Parameter: \"%s\"."), "x");
+	}
+	damaris_err = damaris_parameter_get("y",&segments_y,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+							 _("ERROR: Damaris damaris_parameter_get():\n"
+							   "Parameter: \"%s\"."), "y");
+	}
+	damaris_err = damaris_parameter_get("z",&segments_z,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_parameter_get():\n"
+								   "Parameter: \"%s\"."), "z");
+	}
+	damaris_err = damaris_parameter_get("x_length",&x_length,sizeof(double));
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_parameter_get():\n"
+								   "Parameter: \"%s\"."), "x_length");
+	}
+
+	double* meshx;
+	double* meshy;
+	double* meshz;
+
+	/* the z direction is distributed over mpi ranks */
+	segments_z_per_rank = segments_z/cs_glob_n_ranks;
+
+	BFT_MALLOC(meshx, segments_x, double);
+	BFT_MALLOC(meshy, segments_y, double);
+	BFT_MALLOC(meshz, segments_z_per_rank, double);
+
+	/* these dimensions are governed by the mesh creation script mesh_cube_xyz.py */
+	double x_step, y_step, z_step ;
+	double y_length, z_length ;
+	y_length = x_length / 2.0;
+	z_length = (segments_z / segments_x) * x_length;
+
+	x_step = x_length / segments_x;
+	y_step = y_length / segments_y;
+	z_step = z_length / segments_z;
+
+	for(int i=0; i<segments_x+1 ; i++)
+		meshx[i] = i*x_step;
+
+	for(int j=0; j<segments_y+1 ; j++)
+		meshy[j] = j*y_step;
+
+	double offset = cs_glob_rank_id * segments_z_per_rank * z_step;
+	for(int k=0; k<segments_z_per_rank+1 ; k++)
+		meshz[k] = offset + (k * z_step);
+
+	damaris_err = damaris_write("coord/meshx" , meshx);
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "Variable: \"%s\"."), "coord/meshx");
+	}
+	damaris_err = damaris_write("coord/meshy" , meshy);
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "Variable: \"%s\"."), "coord/meshy");
+	}
+	damaris_err = damaris_write("coord/meshz" , meshz);
+	if (damaris_err != DAMARIS_OK ) {
+	  bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "Variable: \"%s\"."), "coord/meshz");
+	}
+
+	BFT_FREE(meshx); ;
+	BFT_FREE(meshy);
+	BFT_FREE(meshz);
+
+
+}
+#endif
+
+
 /*----------------------------------------------------------------------------*/
 /*!
  * \brief Determine if preprocessing is needed.
