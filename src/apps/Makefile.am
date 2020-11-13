@@ -97,6 +97,7 @@ else
 endif
 endif
 
+
 # Main part
 
 if HAVE_BACKEND
@@ -116,7 +117,7 @@ AM_CPPFLAGS = \
 -I$(top_srcdir)/src/turb \
 $(CPPFLAGS_PLE) \
 $(MPI_CPPFLAGS) $(CPPFLAGS_BLAS) \
-$(CPPFLAGS_MUMPS) 
+$(CPPFLAGS_MUMPS)
 
 
 AM_CFLAGS = $(CFLAGS_DBG) $(CFLAGS_OPT)

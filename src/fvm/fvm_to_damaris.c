@@ -39,11 +39,13 @@
 #include <ctype.h>
 
 /*----------------------------------------------------------------------------
- * Statistics library header
+ * Asynchronous I/O and in-situ visulisation library header
  *----------------------------------------------------------------------------*/
 
+#if defined(HAVE_DAMARIS)
+#include <Damaris.h>
+#endif
 
-#include "Damaris.h"
 
 /*----------------------------------------------------------------------------
  *  Local headers
@@ -86,13 +88,13 @@ typedef struct {
 
   char        *name;               /* Writer name */
 
-  bool         dry_run;            /* If true, do not connect to Damaris */
+//  bool         dry_run;            /* If true, do not connect to Damaris */
   FILE        *tracefile;          /* optional file for tracing */
 
-  int          rank;               /* Rank of current process in communicator */
-  int          n_ranks;            /* Number of processes in communicator */
+//  int          rank;               /* Rank of current process in communicator */
+//  int          n_ranks;            /* Number of processes in communicator */
 
-  size_t       buffer_size;        /* buffer size required */
+//  size_t       buffer_size;        /* buffer size required */
 
   int          time_step;          /* Latest time step */
   double       time_value;         /* Latest time value */
@@ -104,10 +106,10 @@ typedef struct {
                                                   field names */
 
 #if defined(HAVE_MPI)
-  int          min_rank_step;      /* Minimum rank step */
-  int          min_block_size;     /* Minimum block buffer size */
-  MPI_Comm     block_comm;         /* Associated MPI block communicator */
-  MPI_Comm     comm;               /* Associated MPI communicator */
+//  int          min_rank_step;      /* Minimum rank step */
+//  int          min_block_size;     /* Minimum block buffer size */
+//  MPI_Comm     block_comm;         /* Associated MPI block communicator */
+//  MPI_Comm     comm;               /* Associated MPI communicator */
 #endif
 
   bool          modified;          /* Has output been added since
@@ -125,7 +127,7 @@ typedef struct {
 
   const char               *name;        /* current field name */
   int                       time_step;   /* current_time_step */
-  bool                      call_init;   /* call damaris_init ? */
+//  bool                      call_init;   /* call damaris_init ? */
 
 } _damaris_context_t;
 
@@ -133,8 +135,7 @@ typedef struct {
  * Static global variables
  *============================================================================*/
 
-/* Since the Damaris API specifies the field name (and communicator)
-   only, only one Damaris writer can be active a a given time. */
+/* Only one Damaris writer */
 
 static fvm_to_damaris_writer_t  *_writer = NULL;
 
@@ -281,7 +282,7 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 		}
 		// damaris_end_iteration();
     }
-
+    //else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 8) == 0 )
 
     start_id += section->n_elements*dest_dim;
     if (n_parent_lists == 0)
@@ -512,56 +513,19 @@ fvm_to_damaris_init_writer(const char             *name,
   BFT_MALLOC(w->name, strlen(name) + 1, char);
   strcpy(w->name, name);
 
-  w->dry_run = dry_run;
+//  w->dry_run = dry_run;
   w->tracefile = NULL;
 
-  w->rank = 0;
-  w->n_ranks = 1;
+//  w->rank = 0;
+//  w->n_ranks = 1;
 
-  w->buffer_size = 0;
+//  w->buffer_size = 0;
 
   w->f_map = cs_map_name_to_id_create();
   w->f_ts = NULL;
 
-#if defined(HAVE_MPI)
-  {
-    int mpi_flag, rank, n_ranks;
-    w->min_rank_step = 1;
-    w->min_block_size = 1024*1024*8;
-    w->block_comm = MPI_COMM_NULL;
-    w->comm = MPI_COMM_NULL;
-    MPI_Initialized(&mpi_flag);
-    if (mpi_flag && comm != MPI_COMM_NULL) {
-      w->comm = comm;
-      MPI_Comm_rank(w->comm, &rank);
-      MPI_Comm_size(w->comm, &n_ranks);
-      w->rank = rank;
-      w->n_ranks = n_ranks;
-      if (rank_step < 1)
-        rank_step = 1;
-      else if (rank_step > n_ranks)
-        rank_step = n_ranks;
 
-#if defined(HAVE_MELISSA_MPI)
-      w->min_rank_step = rank_step;
-      if (rank_step > 1) {
-        w->block_comm = cs_base_get_rank_step_comm(rank_step);
-      }
-      else
-        w->block_comm = comm;
-#else
-      w->min_rank_step = n_ranks;
-      w->block_comm = MPI_COMM_NULL;
-#endif
-
-      w->comm = comm;
-    }
-  }
-#endif /* defined(HAVE_MPI) */
-
-
-
-  if (w->dry_run == false)
+//  if (w->dry_run == false)
     _writer = w;
 
   /* Return writer */
@@ -596,8 +560,8 @@ fvm_to_damaris_finalize_writer(void  *this_writer_p)
   cs_map_name_to_id_destroy(&(w->f_map));
   BFT_FREE(w->f_ts);
 
-  if (w->dry_run == false)
-    damaris_finalize();
+//  if (w->dry_run == false)
+//    damaris_finalize();  // called in cs_base.c  _cs_base_exit()
 
   BFT_FREE(w);
 
@@ -623,6 +587,160 @@ fvm_to_damaris_set_mesh_time(void          *this_writer_p,
   CS_UNUSED(time_step);
 }
 
+
+
+/*----------------------------------------------------------------------------
+ * Define VTK geometrical element type according to FVM element type
+ *
+ * parameters:
+ *   fvm_elt_type <-- pointer to fvm element type.
+ *
+ * return:
+ *   med geometrical element type.
+ *----------------------------------------------------------------------------*/
+
+static VTKCellType
+_get_norm_elt_type(const fvm_element_t fvm_elt_type)
+{
+  VTKCellType  norm_elt_type;
+
+  switch (fvm_elt_type) {
+
+  case FVM_EDGE:
+    norm_elt_type = VTK_LINE;
+    break;
+
+  case FVM_FACE_TRIA:
+    norm_elt_type = VTK_TRIANGLE;
+    break;
+
+  case FVM_FACE_QUAD:
+    norm_elt_type = VTK_QUAD;
+    break;
+
+  case FVM_FACE_POLY:
+    norm_elt_type = VTK_POLYGON;
+    break;
+
+  case FVM_CELL_TETRA:
+    norm_elt_type = VTK_TETRA;
+    break;
+
+  case FVM_CELL_PYRAM:
+    norm_elt_type = VTK_PYRAMID;
+    break;
+
+  case FVM_CELL_PRISM:
+    norm_elt_type = VTK_WEDGE;
+    break;
+
+  case FVM_CELL_HEXA:
+    norm_elt_type = VTK_HEXAHEDRON;
+    break;
+
+  case FVM_CELL_POLY:
+    norm_elt_type = VTK_POLYHEDRON;
+    break;
+
+  default:
+    norm_elt_type = VTK_EMPTY_CELL;
+    bft_error(__FILE__, __LINE__, 0,
+              "_get_norm_elt_type(): "
+              "No association with VTK element type has been found\n"
+              "FVM element type: \"%i\"\n",
+              (int)fvm_elt_type);
+
+  } /* End of switch on element type */
+
+  return norm_elt_type;
+}
+
+
+/*----------------------------------------------------------------------------
+ * Get vertex order to describe Catalyst element type.
+ *
+ * parameters:
+ *   norm_elt_type  <-- Catalyst element type.
+ *   vertex_order  --> Pointer to vertex order array (0 to n-1).
+ *----------------------------------------------------------------------------*/
+
+static void
+_get_vertex_order(VTKCellType   norm_elt_type,
+                  int          *vertex_order)
+{
+  switch(norm_elt_type) {
+
+  case VTK_LINE:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    break;
+
+  case VTK_TRIANGLE:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    vertex_order[2] = 2;
+    break;
+
+  case VTK_QUAD:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    vertex_order[2] = 2;
+    vertex_order[3] = 3;
+    break;
+
+  case VTK_TETRA:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    vertex_order[2] = 2;
+    vertex_order[3] = 3;
+    break;
+
+  case VTK_PYRAMID:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    vertex_order[2] = 2;
+    vertex_order[3] = 3;
+    vertex_order[4] = 4;
+    break;
+
+  case VTK_WEDGE:
+    vertex_order[0] = 0;
+    vertex_order[1] = 2;
+    vertex_order[2] = 1;
+    vertex_order[3] = 3;
+    vertex_order[4] = 5;
+    vertex_order[5] = 4;
+    break;
+
+  case VTK_HEXAHEDRON:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    vertex_order[2] = 2;
+    vertex_order[3] = 3;
+    vertex_order[4] = 4;
+    vertex_order[5] = 5;
+    vertex_order[6] = 6;
+    vertex_order[7] = 7;
+    break;
+
+  case VTK_POLYGON:
+    vertex_order[0] = -1;
+    break;
+
+  case VTK_POLYHEDRON:
+    vertex_order[0] = -1;
+    break;
+
+  default:
+    bft_error(__FILE__, __LINE__, 0,
+              "_get_vertex_order(): No associated FVM element type known\n"
+              "VTK element type: \"%i\"\n",
+              (int)norm_elt_type);
+  }
+
+  return;
+}
+
 /*----------------------------------------------------------------------------
  * Write nodal mesh to a Damaris output
  *
@@ -635,8 +753,207 @@ void
 fvm_to_damaris_export_nodal(void               *this_writer_p,
                             const fvm_nodal_t  *mesh)
 {
-  CS_UNUSED(this_writer_p);
-  CS_UNUSED(mesh);
+	int  mesh_id, section_id;
+
+	fvm_to_catalyst_t  *w = (fvm_to_catalyst_t *)this_writer_p;
+
+	const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);
+
+	/* Damaris parameter values */
+	/*----------------*/
+	int  vtk_type_stride ;
+	int  n_sections = 0 ;
+	unsigned long n_connectivity = 0 ;
+	cs_lnum_t  n_elts = 0;
+
+	/* Damaris parameter values:  n_sections, n_vertices, n_connectivity
+	 *
+	 * Count the sections and total number of elements per section and
+	 * size of connectivity array (n_connectivity)
+	 */
+	for (section_id = 0; section_id < mesh->n_sections; section_id++) {
+		const fvm_nodal_section_t  *section = mesh->sections[section_id];
+		if (section->entity_dim < elt_dim)
+		  continue;
+	   n_sections++ ;
+	   n_elts += section->n_elements;
+	   vtk_type_stride                = fvm_nodal_n_vertices_element[section->type];
+	   // This will need to be changed if these elements are present in a typical mesh
+	   if ((section->type != FVM_FACE_POLY) &&  (section->type != FVM_CELL_POLY))
+		   n_connectivity += section->n_elements * vtk_type_stride ;
+	} /* End of loop on sections number 1*/
+
+	const int n_vertices = mesh->n_vertices;
+
+	/*
+	 * Allocate arrays to be passed to Damaris for per section details
+	 * (sizes and mesh element types)
+	 */
+	unsigned int  * sect_sizes ;
+	BFT_MALLOC(sect_sizes, n_sections , unsigned long);
+	unsigned int  * sect_vtk_type ;
+	BFT_MALLOC(sect_vtk_type, n_sections , unsigned int);
+
+	for (section_id = 0; section_id < mesh->n_sections; section_id++) {
+		const fvm_nodal_section_t  *section = mesh->sections[section_id];
+		if (section->entity_dim < elt_dim)
+		  continue;
+
+	   sect_sizes[section_id]         =  section->n_elements ;
+	   VTKCellType vtk_type           = _get_norm_elt_type(section->type);
+	   sect_vtk_type[section_id]      = vtk_type ;
+
+	} /* End of loop on sections number 2 */
+
+	/* Allocate vertex storage array to be passed to Damaris */
+	double  * vrtx_umesh_xyz ;
+	BFT_MALLOC(vrtx_umesh_xyz, n_vertices * mesh->dim, double);
+	/* Allocate section connectivities array to be passed to Damaris */
+	unsigned long * sectn_connectivity ;
+	BFT_MALLOC(sectn_connectivity, n_connectivity, unsigned long );
+
+	/* Vertex coordinates */
+	/*--------------------*/
+	const double  *vertex_coords = mesh->vertex_coords;
+
+	// The 3rd dimension is added by Damaris
+	if (mesh->parent_vertex_num != NULL) {
+		const cs_lnum_t  *parent_vertex_num = mesh->parent_vertex_num;
+		for (i = 0; i < n_vertices; i++) {
+			for (j = 0; j < mesh->dim; j++)
+				*vrtx_umesh_xyz++ = vertex_coords[(parent_vertex_num[i]-1)*mesh->dim + j];
+			}
+	}
+	else {
+		for (i = 0; i < n_vertices; i++) {
+			for (j = 0; j < mesh->dim; j++)
+				*vrtx_umesh_xyz++ = vertex_coords[i*mesh->dim + j];
+			}
+	}
+
+	unsigned long  * vrtx_gid ;
+	// GID's are the same data in the same order, so do not copy
+	// Damaris will add/subtract the offset
+	if (mesh->global_vertex_num != NULL) {
+		mesh->global_vertex_num ;
+		vrtx_gid = (unsigned long *) mesh->global_vertex_num->global_num ;
+	}
+
+	/* Element connectivity */
+	/*----------------------*/
+
+	int vertex_order[8];
+	// These are for conversion of FVM_CELL_PRISM to VTK_WEDGE
+	vertex_order[0] = 0;
+	vertex_order[1] = 2;
+	vertex_order[2] = 1;
+	vertex_order[3] = 3;
+	vertex_order[4] = 5;
+	vertex_order[5] = 4;
+
+	// sectn_connectivity
+	for (section_id = 0; section_id < mesh->n_sections; section_id++) {
+
+		const fvm_nodal_section_t  *section = mesh->sections[section_id];
+
+		if (section->entity_dim < elt_dim)
+		  continue;
+
+		if (section->stride > 0){
+			// 	_write_connect_block(section->type,
+			// 		                           section->n_elements,
+			// 		                           section->vertex_num,
+			// 		                           ugrid);
+			cs_lnum_t  i;
+			int  j;
+
+			const int  stride = fvm_nodal_n_vertices_element[section->type];
+			// VTKCellType vtk_type = _get_norm_elt_type(section->type);
+
+			if (vtk_type != FVM_CELL_PRISM ) {  // == VTK_WEDGE
+				for (i = 0; i <  section->n_elements; i++) {
+						for (j = 0; j < stride; j++, sectn_connectivity++)
+							sectn_connectivity[j] = section->vertex_num[i*stride];
+				}
+			} else {
+				// _get_vertex_order(vtk_type, vertex_order);
+				for (i = 0; i <  section->n_elements; i++) {
+					for (j = 0; j < stride; j++, sectn_connectivity++)
+						sectn_connectivity[j] = section->vertex_num[i*stride + vertex_order[j]] - 1;
+				}
+			}
+		} else {
+			// I will not write these connectivites (yet)
+			//else if (section->type == FVM_FACE_POLY)
+			//  _export_nodal_polygons(section, ugrid);
+			//else if (section->type == FVM_CELL_POLY)
+			//  _export_nodal_polyhedra(mesh->n_vertices, section, ugrid);
+			bft_error(__FILE__, __LINE__, 0,
+			   "fvm_to_damaris_export_nodal(): VTK_POLYGON and VTK_POLYHEDRON have not been exported!!! \n"
+			   "Needs to be fixed for this mesh\n") ;
+		}
+	} /* End of loop on sections */
+
+
+
+	/* Pass everything to Damaris */
+	/*----------------------------*/
+
+	// n_sections, n_vertices, n_connectivity
+	if (damaris_parameter_set("n_vertices",&n_vertices, sizeof(cs_lnum_t)) != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err,
+		 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_vertices");
+	}
+	if (damaris_parameter_set("n_sections",&n_sections, sizeof(int)) != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err,
+		 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_sections");
+	}
+	if (damaris_parameter_set("n_connectivity",&n_connectivity, sizeof(unsigned long)) != DAMARIS_OK ) {
+			  bft_error(__FILE__, __LINE__, damaris_err,
+			 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_connectivity");
+	}
+
+	/*
+	 * <mesh name="fluid_domain_umesh" type="unstructured" topology="3">
+	 *
+		<coord              name="umesh_vars/unstructured_mesh_xyz" unit="m" />
+		<vertex_global_id   name="umesh_vars/unstructured_gid"  offset="-1" />
+		<section_types      name="umesh_vars/section_types"  />
+		<section_sizes      name="umesh_vars/section_sizes"  />
+		<connectivity       name="umesh_vars/section_connectivity"  />
+	  </mesh>
+	 */
+
+	if (damaris_write("umesh_vars/unstructured_mesh_xyz" , vrtx_umesh_xyz) != DAMARIS_OK ) {
+		bft_error(__FILE__, __LINE__, damaris_err,
+			_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/unstructured_mesh_xyz" ));
+	}
+	if (damaris_write("umesh_vars/unstructured_gid" , vrtx_gid) != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/unstructured_gid" ));
+		}
+	if (damaris_write("umesh_vars/section_types" , sect_vtk_type) != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_types" ));
+		}
+	if (damaris_write("umesh_vars/section_sizes" , sect_sizes) != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_sizes" ));
+		}
+	if (damaris_write("umesh_vars/section_connectivity" , sectn_connectivity) != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_connectivity" ));
+		}
+
+
+
+	BFT_FREE(vrtx_umesh_xyz);
+	BFT_FREE(sect_sizes);
+	BFT_FREE(sect_vtk_type);
+	BFT_FREE(sectn_connectivity);
+
+
+	w->modified = true;
 }
 
 

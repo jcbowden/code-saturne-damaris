@@ -39,6 +39,8 @@
 #if defined(DEBUG)  /* for sleep() function */
 #include <unistd.h>
 #endif
+
+
 /*----------------------------------------------------------------------------
  *  Local headers
  *----------------------------------------------------------------------------*/
@@ -583,9 +585,7 @@ _run(void)
   cs_base_time_summary();
   cs_base_mem_finalize();
 
-#if defined(HAVE_DAMARIS)
-  damaris_stop();
-#endif
+
 
   cs_log_printf_flush(CS_LOG_N_TYPES);
 }
@@ -600,7 +600,7 @@ main(int    argc,
 {
 
 
-#if defined(DEBUG)  /* Add so we can attched debugger in eclipse */
+#if defined(DEBUG)  /* Add so we can attach debugger in eclipse */
   printf("About to call sleep(1)\n") ;
   sleep(1) ;
 #endif
