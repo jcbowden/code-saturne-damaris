@@ -208,13 +208,13 @@ libfvm_damaris_la_CPPFLAGS = \
 -I$(top_srcdir)/src/bft \
 -I$(top_srcdir)/src/mesh \
 $(DAMARIS_CPPFLAGS) $(MPI_CPPFLAGS)
-libfvm_damaris_la_CFLAGS = \
-$(CFLAGS_DBG) $(CFLAGS_OPT) \
-$(DAMARIS_CFLAGS)
+libfvm_damaris_la_CXXFLAGS = \
+$(CXXFLAGS_DBG) $(CXXFLAGS_OPT) \
+$(DAMARIS_CXXFLAGS)
 libfvm_melissa_la_LIBADD = \
 $(DAMARIS_LDFLAGS) $(DAMARIS_LIBS) \
 $(DAMARISRUNPATH)
-libfvm_damaris_la_SOURCES = fvm_to_damaris.c
+libfvm_damaris_la_SOURCES = fvm_to_damaris.cxx
 noinst_LTLIBRARIES += libfvm_damaris.la
 libfvm_filters_la_LIBADD += libfvm_damaris.la
 endif

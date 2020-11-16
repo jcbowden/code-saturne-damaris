@@ -44,7 +44,13 @@
 
 #if defined(HAVE_DAMARIS)
 #include <Damaris.h>
+//#include <damaris/paraview/ParaViewHeaders.hpp>
 #endif
+
+
+/*----------------------------------------------------------------------------
+ * Catalyst and VTK library headers
+ *----------------------------------------------------------------------------*/
 
 
 /*----------------------------------------------------------------------------
@@ -591,61 +597,62 @@ fvm_to_damaris_set_mesh_time(void          *this_writer_p,
 
 /*----------------------------------------------------------------------------
  * Define VTK geometrical element type according to FVM element type
+ * The definitions come from VTK header vtkCellType.h
  *
  * parameters:
  *   fvm_elt_type <-- pointer to fvm element type.
  *
  * return:
- *   med geometrical element type.
+ *   Integer representation of VTK geometrical element type.
  *----------------------------------------------------------------------------*/
 
-static VTKCellType
-_get_norm_elt_type(const fvm_element_t fvm_elt_type)
+static int
+_get_vtk_element_type(const fvm_element_t fvm_elt_type)
 {
-  VTKCellType  norm_elt_type;
+  int  norm_elt_type;
 
   switch (fvm_elt_type) {
 
   case FVM_EDGE:
-    norm_elt_type = VTK_LINE;
+    norm_elt_type = 3 ; // VTK_LINE;
     break;
 
   case FVM_FACE_TRIA:
-    norm_elt_type = VTK_TRIANGLE;
+    norm_elt_type = 5 ; // VTK_TRIANGLE;
     break;
 
   case FVM_FACE_QUAD:
-    norm_elt_type = VTK_QUAD;
+    norm_elt_type = 9 ; // VTK_QUAD;
     break;
 
   case FVM_FACE_POLY:
-    norm_elt_type = VTK_POLYGON;
+    norm_elt_type = 7 ; // VTK_POLYGON;
     break;
 
   case FVM_CELL_TETRA:
-    norm_elt_type = VTK_TETRA;
+    norm_elt_type = 10 ; // VTK_TETRA;
     break;
 
   case FVM_CELL_PYRAM:
-    norm_elt_type = VTK_PYRAMID;
+    norm_elt_type = 14 ; // VTK_PYRAMID;
     break;
 
   case FVM_CELL_PRISM:
-    norm_elt_type = VTK_WEDGE;
+    norm_elt_type = 13 ; // VTK_WEDGE;
     break;
 
   case FVM_CELL_HEXA:
-    norm_elt_type = VTK_HEXAHEDRON;
+    norm_elt_type = 12 ; // VTK_HEXAHEDRON;
     break;
 
   case FVM_CELL_POLY:
-    norm_elt_type = VTK_POLYHEDRON;
+    norm_elt_type = 42 ; // VTK_POLYHEDRON;
     break;
 
   default:
-    norm_elt_type = VTK_EMPTY_CELL;
+    norm_elt_type = 0 ; // VTK_EMPTY_CELL;
     bft_error(__FILE__, __LINE__, 0,
-              "_get_norm_elt_type(): "
+              "_get_vtk_element_type(): "
               "No association with VTK element type has been found\n"
               "FVM element type: \"%i\"\n",
               (int)fvm_elt_type);
@@ -665,37 +672,37 @@ _get_norm_elt_type(const fvm_element_t fvm_elt_type)
  *----------------------------------------------------------------------------*/
 
 static void
-_get_vertex_order(VTKCellType   norm_elt_type,
+_get_vertex_order(fvm_element_t norm_elt_type,
                   int          *vertex_order)
 {
   switch(norm_elt_type) {
 
-  case VTK_LINE:
+  case FVM_EDGE:
     vertex_order[0] = 0;
     vertex_order[1] = 1;
     break;
 
-  case VTK_TRIANGLE:
-    vertex_order[0] = 0;
-    vertex_order[1] = 1;
-    vertex_order[2] = 2;
-    break;
-
-  case VTK_QUAD:
+  case FVM_FACE_TRIA:
     vertex_order[0] = 0;
     vertex_order[1] = 1;
     vertex_order[2] = 2;
-    vertex_order[3] = 3;
     break;
 
-  case VTK_TETRA:
+  case FVM_FACE_QUAD:
     vertex_order[0] = 0;
     vertex_order[1] = 1;
     vertex_order[2] = 2;
     vertex_order[3] = 3;
     break;
 
-  case VTK_PYRAMID:
+  case FVM_CELL_TETRA:
+    vertex_order[0] = 0;
+    vertex_order[1] = 1;
+    vertex_order[2] = 2;
+    vertex_order[3] = 3;
+    break;
+
+  case FVM_CELL_PYRAM:
     vertex_order[0] = 0;
     vertex_order[1] = 1;
     vertex_order[2] = 2;
@@ -703,7 +710,7 @@ _get_vertex_order(VTKCellType   norm_elt_type,
     vertex_order[4] = 4;
     break;
 
-  case VTK_WEDGE:
+  case FVM_CELL_PRISM:
     vertex_order[0] = 0;
     vertex_order[1] = 2;
     vertex_order[2] = 1;
@@ -712,7 +719,7 @@ _get_vertex_order(VTKCellType   norm_elt_type,
     vertex_order[5] = 4;
     break;
 
-  case VTK_HEXAHEDRON:
+  case FVM_CELL_HEXA:
     vertex_order[0] = 0;
     vertex_order[1] = 1;
     vertex_order[2] = 2;
@@ -723,11 +730,11 @@ _get_vertex_order(VTKCellType   norm_elt_type,
     vertex_order[7] = 7;
     break;
 
-  case VTK_POLYGON:
+  case FVM_FACE_POLY:
     vertex_order[0] = -1;
     break;
 
-  case VTK_POLYHEDRON:
+  case FVM_CELL_POLY:
     vertex_order[0] = -1;
     break;
 
@@ -755,7 +762,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 {
 	int  mesh_id, section_id;
 
-	fvm_to_catalyst_t  *w = (fvm_to_catalyst_t *)this_writer_p;
+	fvm_to_damaris_writer_t  *w = (fvm_to_damaris_writer_t *)this_writer_p;
 
 	const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);
 
@@ -783,14 +790,14 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 		   n_connectivity += section->n_elements * vtk_type_stride ;
 	} /* End of loop on sections number 1*/
 
-	const int n_vertices = mesh->n_vertices;
+	const long unsigned int n_vertices = mesh->n_vertices;
 
 	/*
 	 * Allocate arrays to be passed to Damaris for per section details
 	 * (sizes and mesh element types)
 	 */
 	unsigned int  * sect_sizes ;
-	BFT_MALLOC(sect_sizes, n_sections , unsigned long);
+	BFT_MALLOC(sect_sizes, n_sections , unsigned int);
 	unsigned int  * sect_vtk_type ;
 	BFT_MALLOC(sect_vtk_type, n_sections , unsigned int);
 
@@ -800,7 +807,8 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 		  continue;
 
 	   sect_sizes[section_id]         =  section->n_elements ;
-	   VTKCellType vtk_type           = _get_norm_elt_type(section->type);
+	   // This could be a uchar vector as element types are stored as unsigned char array (from vtkCellType.h)
+	   int vtk_type                   = _get_vtk_element_type(section->type);
 	   sect_vtk_type[section_id]      = vtk_type ;
 
 	} /* End of loop on sections number 2 */
@@ -819,24 +827,36 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	// The 3rd dimension is added by Damaris
 	if (mesh->parent_vertex_num != NULL) {
 		const cs_lnum_t  *parent_vertex_num = mesh->parent_vertex_num;
-		for (i = 0; i < n_vertices; i++) {
-			for (j = 0; j < mesh->dim; j++)
+		for (size_t i = 0; i < n_vertices; i++) {
+			for (size_t j = 0; j < mesh->dim; j++)
 				*vrtx_umesh_xyz++ = vertex_coords[(parent_vertex_num[i]-1)*mesh->dim + j];
 			}
 	}
 	else {
-		for (i = 0; i < n_vertices; i++) {
-			for (j = 0; j < mesh->dim; j++)
+		for (size_t i = 0; i < n_vertices; i++) {
+			for (size_t j = 0; j < mesh->dim; j++)
 				*vrtx_umesh_xyz++ = vertex_coords[i*mesh->dim + j];
 			}
 	}
 
-	unsigned long  * vrtx_gid ;
-	// GID's are the same data in the same order, so do not copy
+
+/*
+    struct _fvm_io_num_t {
+
+	  cs_gnum_t          global_count;    /* Global number of entities
+	  cs_lnum_t          global_num_size; /* Local size of global numbering array
+	  const cs_gnum_t   *global_num;      /* Global (possibly shared) entity
+	                                         numbers (1 to n)
+	  cs_gnum_t         *_global_num;     /* Global entity numbers if owner,
+	                                         NULL otherwise
+    };
+*/
+	const unsigned long  * vrtx_gid ;
+	// GID's are the same data as required by damaris, so do not copy
 	// Damaris will add/subtract the offset
 	if (mesh->global_vertex_num != NULL) {
-		mesh->global_vertex_num ;
-		vrtx_gid = (unsigned long *) mesh->global_vertex_num->global_num ;
+	//	mesh->global_vertex_num ;
+		vrtx_gid = static_cast<const unsigned long *>(fvm_io_num_get_global_num(mesh->global_vertex_num));
 	}
 
 	/* Element connectivity */
@@ -851,6 +871,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	vertex_order[4] = 5;
 	vertex_order[5] = 4;
 
+	// fvm_nodal_n_vertices_element(section->type)
 	// sectn_connectivity
 	for (section_id = 0; section_id < mesh->n_sections; section_id++) {
 
@@ -868,15 +889,15 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 			int  j;
 
 			const int  stride = fvm_nodal_n_vertices_element[section->type];
-			// VTKCellType vtk_type = _get_norm_elt_type(section->type);
+			// VTKCellType vtk_type = _get_vtk_element_type(section->type);
 
-			if (vtk_type != FVM_CELL_PRISM ) {  // == VTK_WEDGE
+			if (section->type != FVM_CELL_PRISM ) {  // == VTK_WEDGE
 				for (i = 0; i <  section->n_elements; i++) {
 						for (j = 0; j < stride; j++, sectn_connectivity++)
 							sectn_connectivity[j] = section->vertex_num[i*stride];
 				}
 			} else {
-				// _get_vertex_order(vtk_type, vertex_order);
+				 _get_vertex_order(section->type, vertex_order);
 				for (i = 0; i <  section->n_elements; i++) {
 					for (j = 0; j < stride; j++, sectn_connectivity++)
 						sectn_connectivity[j] = section->vertex_num[i*stride + vertex_order[j]] - 1;
@@ -898,17 +919,20 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 	/* Pass everything to Damaris */
 	/*----------------------------*/
-
+	int damaris_err ;
 	// n_sections, n_vertices, n_connectivity
-	if (damaris_parameter_set("n_vertices",&n_vertices, sizeof(cs_lnum_t)) != DAMARIS_OK ) {
+	damaris_err = damaris_parameter_set("n_vertices",&n_vertices, sizeof(cs_lnum_t));
+	if (damaris_err != DAMARIS_OK ) {
 		  bft_error(__FILE__, __LINE__, damaris_err,
 		 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_vertices");
 	}
-	if (damaris_parameter_set("n_sections",&n_sections, sizeof(int)) != DAMARIS_OK ) {
+	damaris_err = damaris_parameter_set("n_sections",&n_sections, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
 		  bft_error(__FILE__, __LINE__, damaris_err,
 		 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_sections");
 	}
-	if (damaris_parameter_set("n_connectivity",&n_connectivity, sizeof(unsigned long)) != DAMARIS_OK ) {
+	damaris_err = damaris_parameter_set("n_connectivity",&n_connectivity, sizeof(unsigned long));
+	if (damaris_err != DAMARIS_OK ) {
 			  bft_error(__FILE__, __LINE__, damaris_err,
 			 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_connectivity");
 	}
@@ -923,24 +947,28 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 		<connectivity       name="umesh_vars/section_connectivity"  />
 	  </mesh>
 	 */
-
-	if (damaris_write("umesh_vars/unstructured_mesh_xyz" , vrtx_umesh_xyz) != DAMARIS_OK ) {
+	damaris_err = damaris_write("umesh_vars/unstructured_mesh_xyz" , vrtx_umesh_xyz);
+	if (damaris_err != DAMARIS_OK ) {
 		bft_error(__FILE__, __LINE__, damaris_err,
 			_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/unstructured_mesh_xyz" ));
 	}
-	if (damaris_write("umesh_vars/unstructured_gid" , vrtx_gid) != DAMARIS_OK ) {
+	damaris_err = damaris_write("umesh_vars/unstructured_gid" , vrtx_gid);
+	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/unstructured_gid" ));
 		}
-	if (damaris_write("umesh_vars/section_types" , sect_vtk_type) != DAMARIS_OK ) {
+	damaris_err = damaris_write("umesh_vars/section_types" , sect_vtk_type);
+	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_types" ));
 		}
-	if (damaris_write("umesh_vars/section_sizes" , sect_sizes) != DAMARIS_OK ) {
+	damaris_err = damaris_write("umesh_vars/section_sizes" , sect_sizes);
+	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_sizes" ));
 		}
-	if (damaris_write("umesh_vars/section_connectivity" , sectn_connectivity) != DAMARIS_OK ) {
+	damaris_err = damaris_write("umesh_vars/section_connectivity" , sectn_connectivity);
+	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_connectivity" ));
 		}
