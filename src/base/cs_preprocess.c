@@ -187,13 +187,13 @@ cs_preprocess_set_damaris_param_from_mesh(cs_mesh_t *m)
 	double x_length ;
 	int segments_x, segments_y, segments_z, segments_z_per_rank ;
 
-	damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
+/*	damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
 	  bft_error(__FILE__, __LINE__, damaris_err,
 									 _("ERROR: Damaris damaris_parameter_set():\n"
 									   "paramater: \"%s\"."), "cs_glob_n_ranks");
 	}
-
+*/
 	damaris_err = damaris_parameter_get("x",&segments_x,sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
 	  bft_error(__FILE__, __LINE__, damaris_err,

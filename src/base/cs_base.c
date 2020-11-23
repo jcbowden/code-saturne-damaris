@@ -1034,6 +1034,14 @@ currently when using Code_Saturne with Damaris I/O support\n"));
 	   	   _cs_base_err_printf(_("\nDAMARIS error: damaris_client_comm_get() failed\n"));
 	   	   cs_exit(damaris_err);
 	   }
+
+	/* Set the Damaris parameter to be used in data layouts */
+	damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		_cs_base_err_printf(_("ERROR: Damaris damaris_parameter_set():\nparamater: \"cs_glob_n_ranks\""));
+		cs_exit(damaris_err);
+	}
+
    }
     
 #else
