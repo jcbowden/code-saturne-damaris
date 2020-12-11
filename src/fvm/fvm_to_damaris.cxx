@@ -264,6 +264,7 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 		}
 
     }
+
     //else if (dim == 3)
     else if ( strncmp( fieldname_lwrcase, "velocity", 8) == 0 )
     {
@@ -422,7 +423,7 @@ fvm_to_damaris_init_writer(const char             *name,
   w->f_map = cs_map_name_to_id_create();
   w->f_ts = NULL;
 
-
+  w->time_value = 0.0 ;
 //  if (w->dry_run == false)
     _writer = w;
 
@@ -689,7 +690,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	} /* End of loop on sections number 1*/
 
 
-	const long unsigned int n_vertices = mesh->n_vertices;
+	const unsigned long n_vertices = mesh->n_vertices;
 
 	/*
 	 * Allocate arrays to be passed to Damaris for per section details
@@ -715,10 +716,10 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 	} /* End of loop on sections number 2 */
 
-	/* Allocate vertex storage array to be passed to Damaris */
+	/* Allocate local vertex storage array to be passed to Damaris */
 	double  * vrtx_umesh_xyz ;
 	BFT_MALLOC(vrtx_umesh_xyz, n_vertices * mesh->dim, double);
-	/* Allocate section connectivities array to be passed to Damaris */
+	/* Allocate local section connectivities array to be passed to Damaris */
 	unsigned long * sectn_connectivity ;
 	BFT_MALLOC(sectn_connectivity, n_connectivity, unsigned long );
 
@@ -726,7 +727,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	/*--------------------*/
 	const double  *vertex_coords = mesh->vertex_coords;
 
-	// The 3rd dimension is added by Damaris
+	// The 3rd dimension will be added by Damaris if needed
 	if (mesh->parent_vertex_num != NULL) {
 		const cs_lnum_t  *parent_vertex_num = mesh->parent_vertex_num;
 		for (size_t i = 0; i < n_vertices; i++) {
@@ -756,7 +757,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 */
 	const unsigned long  * vrtx_gid ;
 	// GID's are the same data as required by damaris, so do not copy
-	// Damaris will add/subtract the offset
+	// Damaris will add/subtract the offset as specified by:   <vertex_global_id   offset="-1" />
 	if (mesh->global_vertex_num != NULL) {
 	//	mesh->global_vertex_num ;
 		vrtx_gid = static_cast<const unsigned long *>(fvm_io_num_get_global_num(mesh->global_vertex_num));
@@ -776,12 +777,15 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 	// fvm_nodal_n_vertices_element(section->type)
 	// sectn_connectivity
+	unsigned long rolling_offset = 0;
 	for (section_id = 0; section_id < mesh->n_sections; section_id++) {
 
 		const fvm_nodal_section_t  *section = mesh->sections[section_id];
 
 		if (section->entity_dim < elt_dim)
 		  continue;
+
+		const int  stride = fvm_nodal_n_vertices_element[section->type];
 
 		if (section->stride > 0){
 			// 	_write_connect_block(section->type,
@@ -791,13 +795,13 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 			cs_lnum_t  i;
 			int  j;
 
-			const int  stride = fvm_nodal_n_vertices_element[section->type];
+
 			// VTKCellType vtk_type = _get_vtk_element_type(section->type);
 
 			if (section->type != FVM_CELL_PRISM ) {  // == VTK_WEDGE
 				for (i = 0; i <  section->n_elements; i++) {
 						for (j = 0; j < stride; j++)
-							sectn_connectivity[i*stride+j] = section->vertex_num[i*stride+j];
+							sectn_connectivity[rolling_offset+ i*stride+j] = section->vertex_num[i*stride+j];
 				}
 				//N.B. memcpy can't be used due to possible size difference between cs_lnum_t and long int
 				//memcpy((void*)sectn_connectivity,(void*)section->vertex_num,section->n_elements*stride*sizeof(long int)) ;
@@ -805,11 +809,11 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 				 _get_vertex_order(section->type, vertex_order);
 				for (i = 0; i <  section->n_elements; i++) {
 					for (j = 0; j < stride; j++)
-						sectn_connectivity[i*stride+j] = section->vertex_num[i*stride + vertex_order[j]] - 1;
+						sectn_connectivity[rolling_offset+i*stride+j] = section->vertex_num[i*stride + vertex_order[j]] ;
 				}
 			}
 		} else {
-			// I will not write these connectivites (yet)
+			// I will not write these connectivities (yet)
 			//else if (section->type == FVM_FACE_POLY)
 			//  _export_nodal_polygons(section, ugrid);
 			//else if (section->type == FVM_CELL_POLY)
@@ -818,51 +822,142 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 			   "fvm_to_damaris_export_nodal(): VTK_POLYGON and VTK_POLYHEDRON have not been exported!!! \n"
 			   "Needs to be fixed for this mesh\n") ;
 		}
+
+		rolling_offset += sect_sizes[section_id_real] * stride ;
 	} /* End of loop on sections */
 
 
-	/* Communicate global values */
-	/*---------------------------*/
-	/*  n_sections_total == sum of n_sections over all ranks,
-	 *  n_sections_total is the size of: section_types, section_sizes, section_dims and section_vertices arrays
-	 *  sections_offsets == array of size "mpi_n_ranks", each element holding prefix sum of elements up to its rank position
-	 *    i.e. if ranks hold 3,2,4,2 then sections_offsets[] = {0,3,5,9}.
-	 *  The offsets index into section_types, section_sizes, section_dims and section_vertices arrays
-	 */
+   /* Communicate global values */
+   /*---------------------------*/
+
+   /*  n_sections_total == sum of n_sections over all ranks,
+	*  n_sections_total is the size of: section_types and section_sizes arrays
+	*  sections_offsets == array of size "mpi_n_ranks", each element holding prefix sum of elements
+	*  up to its rank position.
+	*    i.e. if ranks hold 3,2,4,2 then sections_offsets[] = {0,3,5,9}.
+	*  The offsets index into section_types, section_sizes, section_dims and section_vertices arrays
+	*
+	*  QUESTION: Can MPI_Allreduce and MPI_Allgather be done in Damaris memory using damaris_read()?
+	*/
 	int n_sections_total ;
 	MPI_Allreduce(&n_sections, &n_sections_total, 1, MPI_INT, MPI_SUM, w->damaris_mpi_comm) ;
 
-	unsigned long * sectn_offsets ;
-	BFT_MALLOC(sectn_offsets, n_sections_total, unsigned long );
-	MPI_Allgather(&n_sections, 1, MPI_INT, sectn_offsets, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm)
+	int * sectn_offsets ;
+	BFT_MALLOC(sectn_offsets, cs_glob_n_ranks, int );
+	int * sectn_sizes ;
+	BFT_MALLOC(sectn_sizes, cs_glob_n_ranks, int  );
+	// This gets the n_sections
+	MPI_Allgather(&n_sections, 1, MPI_INT, sectn_sizes, 1, MPI_INT, w->damaris_mpi_comm);
+	sectn_offsets[0] = 0l ;
+	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
+	{
+		sectn_offsets[t1] = sectn_offsets[t1-1] + sectn_sizes[t1-1];
+	}
+
+
+
+   /*  The following are used for the vertex coordinate offsets and the
+	*  vertex GIDs. Vertex coordinate offsets need to be multiplied by the mesh dimension (2D or 3D)
+	*  n_vertices_total is the size of: unstructured_gid and unstructured_mesh_xyz (== n_vertices_totalx3)
+	*/
+	unsigned long  n_vertices_total ;
+	MPI_Allreduce(&n_vertices, &n_vertices_total, 1, MPI_UNSIGNED_LONG, MPI_SUM, w->damaris_mpi_comm) ;
+
+	unsigned long  * vertices_rank_offsets ;
+	BFT_MALLOC(vertices_rank_offsets, cs_glob_n_ranks, unsigned long  );
+	unsigned long  * vertices_rank_sizes ;
+	BFT_MALLOC(vertices_rank_sizes, cs_glob_n_ranks, unsigned long );
+	// This gets the n_sections
+	MPI_Allgather(&n_vertices, 1, MPI_UNSIGNED_LONG, vertices_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
+	vertices_rank_offsets[0] = 0l ;
+	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
+	{
+		vertices_rank_offsets[t1] = vertices_rank_offsets[t1-1] + vertices_rank_sizes[t1-1];
+	}
+
+
+	/*  The following are used for the vertex connectivity data
+	*   The connectivity offsets are the positions of the first element of the ranks
+	*   Each section of the mesh on a rank contributes n_elements * element stride values.
+	*   n_connectivity_total is the total size required for the variable to hold the connectivities
+	*/
+	unsigned long  n_connectivity_total ;
+	MPI_Allreduce(&n_connectivity, &n_connectivity_total, 1, MPI_UNSIGNED_LONG, MPI_SUM, w->damaris_mpi_comm) ;
+
+	unsigned long * connectivity_rank_offsets ;
+	BFT_MALLOC(connectivity_rank_offsets, cs_glob_n_ranks, unsigned long );
+	unsigned long * connectivity_rank_sizes ;
+	BFT_MALLOC(connectivity_rank_sizes, cs_glob_n_ranks, unsigned long );
+	// This gets the n_connectivity of each rank, which is the size of the connectivity of all sections on the current rank
+	MPI_Allgather(&n_connectivity, 1, MPI_UNSIGNED_LONG, connectivity_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
+	connectivity_rank_offsets[0] = 0l ;
+	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
+	{
+		connectivity_rank_offsets[t1] = connectivity_rank_offsets[t1-1] + connectivity_rank_sizes[t1-1];
+	}
+
 
 
 	/* Pass everything to Damaris */
 	/*----------------------------*/
 
-	int damaris_err ;
+	int damaris_err = DAMARIS_OK;
+
+	// mesh_dim and n_vertices_local affects the size of the vertices array (unstructured_mesh_xyz) on each rank
+	damaris_err = damaris_parameter_set("mesh_dim",&(mesh->dim), sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_sections_total"));
+	}
 
 	// N.B. damaris_parameter_set("cs_glob_n_ranks"...) has been set in cs_base.c in function  _cs_base_mpi_setup()
-
-	// n_sections, n_vertices, n_connectivity
-
+	/* Global size parameters */
+	// n_sections_total, n_vertices_total, n_connectivity_total
 	damaris_err = damaris_parameter_set("n_sections_total",&n_sections_total, sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err,
-		 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_sections");
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_sections_total"));
 	}
 
 	damaris_err = damaris_parameter_set("n_vertices_total",&n_vertices_total, sizeof(unsigned long));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err,
-		 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_vertices");
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_vertices_total"));
 	}
 
-	damaris_err = damaris_parameter_set("n_connectivity_total",&n_connectivity, sizeof(unsigned long));
+	damaris_err = damaris_parameter_set("n_connectivity_total",&n_connectivity_total, sizeof(unsigned long));
 	if (damaris_err != DAMARIS_OK ) {
-			  bft_error(__FILE__, __LINE__, damaris_err,
-			 _("ERROR: Damaris damaris_parameter_set():\nparamater: \"%s\"."), "n_connectivity");
+		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_parameter_set():\nparamater: n_connectivity_total"));
 	}
+
+	/* Local (per process) size parameters */
+	// n_sections, n_vertices, n_connectivity, they can be different for each MPI process
+	damaris_err = damaris_parameter_set("n_sections_local",&n_sections, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_sections_local"));
+	}
+
+
+	damaris_err = damaris_parameter_set("n_vertices_local",&n_vertices, sizeof(unsigned long));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_vertices_local"));
+	}
+
+	// n_connectivity_local is the total size of all connectivity indices for the sections on a rank
+	damaris_err = damaris_parameter_set("n_connectivity_local",&n_connectivity, sizeof(unsigned long));
+	if (damaris_err != DAMARIS_OK ) {
+		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_parameter_set():\nparamater: n_connectivity_local"));
+	}
+
+
+	/* Field sizes (per process and global) size parameters */
+	/* The field sizes are currently 'hard coded' in the xml file
+	int global_size = 262144 ;
+	damaris_err = damaris_parameter_set("n_field_array_total",&global_size, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {n_field_array_total}
+	int local_size = 131072 ;
+	damaris_err = damaris_parameter_set("n_field_array_local",&local_size, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_field_array_local"));
+	}
+	*/
 
 	/*
 	 * <mesh name="fluid_domain_umesh" type="unstructured" topology="3">
@@ -876,15 +971,22 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	 */
 
 	// damaris_set_position
+	int64_t pos;
 
+	pos = vertices_rank_offsets[cs_glob_rank_id] * mesh->dim ;
+	damaris_err = damaris_set_position("umesh_vars/unstructured_mesh_xyz" , &pos);
+	if (damaris_err != DAMARIS_OK )
+		bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() umesh_vars/unstructured_mesh_xyz"));
+	// unstructured_mesh_xyz contains the Mesh coords variable
 	damaris_err = damaris_write("umesh_vars/unstructured_mesh_xyz" , vrtx_umesh_xyz);
 	if (damaris_err != DAMARIS_OK ) {
-		bft_error(__FILE__, __LINE__, damaris_err,
-			_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/unstructured_mesh_xyz" ));
+		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/unstructured_mesh_xyz" ));
 	}
 
-
-
+	pos = vertices_rank_offsets[cs_glob_rank_id]  ;
+	damaris_err = damaris_set_position("umesh_vars/unstructured_gid" , &pos);
+	if (damaris_err != DAMARIS_OK )
+		bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() umesh_vars/unstructured_gid"));
 	damaris_err = damaris_write("umesh_vars/unstructured_gid" , vrtx_gid);
 	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
@@ -893,14 +995,19 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 
 
+	pos = sectn_offsets[cs_glob_rank_id] ;
+	damaris_err = damaris_set_position("umesh_vars/section_types" , &pos);
+	if (damaris_err != DAMARIS_OK )
+		bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() umesh_vars/section_types"));
 	damaris_err = damaris_write("umesh_vars/section_types" , sect_vtk_type);
 	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_types" ));
 		}
 
-
-
+	damaris_err = damaris_set_position("umesh_vars/section_sizes" , &pos);
+	if (damaris_err != DAMARIS_OK )
+			bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() umesh_vars/section_sizes"));
 	damaris_err = damaris_write("umesh_vars/section_sizes" , sect_sizes);
 	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
@@ -908,6 +1015,10 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 		}
 
 
+	pos = connectivity_rank_offsets[cs_glob_rank_id] ;
+	damaris_err = damaris_set_position("umesh_vars/section_connectivity" , &pos);
+		if (damaris_err != DAMARIS_OK )
+			bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() umesh_vars/section_connectivity"));
 	damaris_err = damaris_write("umesh_vars/section_connectivity" , sectn_connectivity);
 	if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
@@ -920,6 +1031,15 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	BFT_FREE(sect_sizes);
 	BFT_FREE(sect_vtk_type);
 	BFT_FREE(sectn_connectivity);
+
+
+	BFT_FREE(sectn_offsets);
+	BFT_FREE(sectn_sizes);
+	BFT_FREE(vertices_rank_offsets);
+	BFT_FREE(vertices_rank_sizes);
+	BFT_FREE(connectivity_rank_offsets);
+	BFT_FREE(connectivity_rank_sizes);
+
 
 
 	w->modified = true;

@@ -1015,7 +1015,7 @@ currently when using Code_Saturne with Damaris I/O support\n"));
   }
   else {
 #if defined(HAVE_DAMARIS)
-   int damaris_err = damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
+   damaris_err = damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
 
    if (damaris_err != DAMARIS_OK ) {
 	   _cs_base_err_printf(_("\nDAMARIS error: damaris_initialize() failed\n"));
