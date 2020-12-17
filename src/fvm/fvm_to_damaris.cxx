@@ -92,34 +92,40 @@ BEGIN_C_DECLS
 
 typedef struct {
 
-  char        *name;               /* Writer name */
+  char        *name;           /* Writer name */
 
-//  bool         dry_run;            /* If true, do not connect to Damaris */
-  FILE        *tracefile;          /* optional file for tracing */
+  bool         usm_on;         /* Input xml file switch to initialize unstructured
+  	                              mesh in fvm_to_damaris_export_nodal() function.
+                                  <writer>
+                                  <format name="damaris" options="usm_on"/>
+                                  </writer>
+                                   Default is off if the string is not present */
 
-//  int          rank;               /* Rank of current process in communicator */
-//  int          n_ranks;            /* Number of processes in communicator */
+  FILE        *tracefile;       /* optional file for tracing */
 
-//  size_t       buffer_size;        /* buffer size required */
+//  int          rank;          /* Rank of current process in communicator */
+//  int          n_ranks;       /* Number of processes in communicator */
 
-  int          time_step;          /* Latest time step */
-  double       time_value;         /* Latest time value */
+//  size_t       buffer_size;   /* buffer size required */
 
-  cs_map_name_to_id_t  *f_map;     /* field names mapping */
-  int         *f_ts;               /* last field output time step */
+  int          time_step;       /* Latest time step */
+  double       time_value;      /* Latest time value */
 
-  bool        ensight_names;   /* Use EnSight rules for
-                                                  field names */
+  cs_map_name_to_id_t  *f_map;  /* field names mapping */
+  int         *f_ts;            /* last field output time step */
+
+  bool        ensight_names;    /* Use EnSight rules for
+                                   field names */
 
 #if defined(HAVE_MPI)
-//  int          min_rank_step;      /* Minimum rank step */
-//  int          min_block_size;     /* Minimum block buffer size */
-//  MPI_Comm     block_comm;         /* Associated MPI block communicator */
-    MPI_Comm     damaris_mpi_comm;               /* Associated MPI communicator */
+//  int          min_rank_step;     /* Minimum rank step */
+//  int          min_block_size;    /* Minimum block buffer size */
+//  MPI_Comm     block_comm;        /* Associated MPI block communicator */
+    MPI_Comm     damaris_mpi_comm;  /* Associated MPI communicator */
 #endif
 
-  bool          modified;          /* Has output been added since
-                                      last coprocessing ? */
+  bool          modified;       /* Has output been added since
+                                   last coprocessing ? */
 
 } fvm_to_damaris_writer_t;
 
@@ -241,14 +247,41 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 							 _("ERROR: Damaris damaris_parameter_get():\n"
 							   "Parameter: \"%s\"."), "z");
 	}
+	int param_x ;
+	damaris_err = damaris_parameter_get("x",&param_x,sizeof(int));
+	int param_y ;
+	damaris_err = damaris_parameter_get("y",&param_y,sizeof(int));
 
     if ( strncmp( fieldname_lwrcase, "pressure", 8) == 0 )
     {
 		int64_t pos[3];
 
-		pos[0] = cs_glob_rank_id*param_z/cs_glob_n_ranks;
+		double * mypressure ;
+		double * mypressure_cpy ;
+		int x = param_x ;
+		int y = param_y ;
+		int z_persectn = param_z / cs_glob_n_ranks;
+		int size_sectn = x * y * z_persectn ;
+		BFT_MALLOC( mypressure, size_sectn, double );
+		mypressure_cpy = mypressure ;
+		for (int zc = cs_glob_rank_id*z_persectn ; zc < (cs_glob_rank_id+1)*z_persectn ; zc++) {
+			for (int yc = 0; yc < y ; yc++){
+				for (int xc = 0 ; xc < x ; xc++) {
+					*mypressure_cpy = (double) ((zc * y * x)+(yc *x)+xc) ;
+					 printf("%.1f", (*mypressure_cpy));
+					mypressure_cpy++ ;
+				}
+				printf("\n");
+			}
+			printf("\n");
+		}
+
+		printf("\n");
+
+		// N.B. x,y,z == 0,1,2 indices
+		pos[0] = 0;
 		pos[1] = 0;
-		pos[2] = 0;
+		pos[2] = cs_glob_rank_id*param_z/cs_glob_n_ranks;
 
 		damaris_err = damaris_set_position("fields/pressure" , pos);
 		if (damaris_err != DAMARIS_OK ) {
@@ -256,12 +289,15 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 								 _("ERROR: Damaris damaris_set_position():\n"
 								   "field: \"%s\"."), "fields/pressure");
 		}
-		damaris_err = damaris_write("fields/pressure" ,field_values[0]);
+		// damaris_err = damaris_write("fields/pressure" ,field_values[0]);
+		damaris_err = damaris_write("fields/pressure" ,mypressure);
 		if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 								 _("ERROR: Damaris damaris_write():\n"
 								   "field: \"%s\"."), "fields/pressure");
 		}
+
+		BFT_FREE(mypressure);
 
     }
 
@@ -270,10 +306,27 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
     {
     	int64_t pos[4];
 
+    	double * mypressure ;
+    	double * mypressure_cpy ;
+    	int v3 = 3 ;
+		int x = param_x ;
+		int y = param_y ;
+		int z_persectn = param_z / cs_glob_n_ranks;  // cs_glob_rank_id*z_persectn
+		int size_sectn = x * y * z_persectn *v3  ;
+		BFT_MALLOC( mypressure, size_sectn, double );
+		mypressure_cpy = mypressure ;
+		for (int zc =cs_glob_rank_id*z_persectn ; zc < (cs_glob_rank_id+1)*z_persectn ;  zc++)
+			for (int yc = 0; yc < y ; yc++)
+				for (int xc = 0 ; xc < x ; xc++)
+					for (int vc = 0 ; vc < v3 ; vc++) {
+						*mypressure_cpy = (double) ((zc ) * y * x * v3)+(yc *x*v3)+(xc*v3) + vc;
+						mypressure_cpy++ ;
+					}
+
 		pos[0] = 0;
-		pos[1] = (cs_glob_rank_id*param_z/cs_glob_n_ranks);
+		pos[1] = 0;
 		pos[2] = 0;
-		pos[3] = 0;
+		pos[3] = (cs_glob_rank_id*param_z/cs_glob_n_ranks);
 
 		damaris_err = damaris_set_position("fields/velocity" , pos);
 		if (damaris_err != DAMARIS_OK ) {
@@ -281,13 +334,15 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 								 _("ERROR: Damaris damaris_set_position():\n"
 								   "field: \"%s\"."), "fields/velocity");
 		}
-		damaris_err = damaris_write("fields/velocity" ,field_values[0]);
+		// damaris_err = damaris_write("fields/velocity" ,field_values[0]);
+		damaris_err = damaris_write("fields/velocity" ,mypressure);
 		if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 								 _("ERROR: Damaris damaris_write():\n"
 								   "field: \"%s\"."), "fields/velocity");
 		}
 		// damaris_end_iteration();
+		BFT_FREE(mypressure);
     }
     //else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 8) == 0 )
 
@@ -364,7 +419,7 @@ fvm_to_damaris_init_writer(const char             *name,
 
   int rank_step = 1;
   bool trace = false;
-  bool dry_run = false;
+  bool usm_on = false;
 
 
   if (options != NULL) {
@@ -383,8 +438,8 @@ fvm_to_damaris_init_writer(const char             *name,
       if ((l_opt == 5) && (strncmp(options + i1, "trace", l_opt) == 0))
         trace = true;
 
-      else if ((l_opt == 7) && (strncmp(options + i1, "dry_run", l_opt) == 0)) {
-        dry_run = true;
+      else if ((l_opt == 7) && (strncmp(options + i1, "usm_on", l_opt) == 0)) {
+    	  usm_on = true;
         trace = true;
       }
 
@@ -412,7 +467,7 @@ fvm_to_damaris_init_writer(const char             *name,
   BFT_MALLOC(w->name, strlen(name) + 1, char);
   strcpy(w->name, name);
 
-//  w->dry_run = dry_run;
+  w->usm_on = usm_on;
   w->tracefile = NULL;
   w->damaris_mpi_comm  = comm ;
 //  w->rank = 0;
@@ -657,9 +712,12 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 	fvm_to_damaris_writer_t  *w = (fvm_to_damaris_writer_t *)this_writer_p;
 
+	if (w->usm_on == true)
+	{
 	const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);
 
-	/* Damaris parameter values */
+
+	/* Damaris input xml file parameter values */
 	/*----------------*/
 	int  vtk_type_stride ;
 	int  n_sections = 0 ;
@@ -904,9 +962,10 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	int damaris_err = DAMARIS_OK;
 
 	// mesh_dim and n_vertices_local affects the size of the vertices array (unstructured_mesh_xyz) on each rank
-	damaris_err = damaris_parameter_set("mesh_dim",&(mesh->dim), sizeof(int));
+	int dim = mesh->dim ;
+	damaris_err = damaris_parameter_set("mesh_dim",&dim, sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_sections_total"));
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: mesh_dim"));
 	}
 
 	// N.B. damaris_parameter_set("cs_glob_n_ranks"...) has been set in cs_base.c in function  _cs_base_mpi_setup()
@@ -1043,6 +1102,9 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 
 	w->modified = true;
+	} else {
+		 printf("INFO: fvm_to_damaris_export_nodal() Damaris has not initialized the VTK Unstructured Mesh data. To enable set <writer><format name=\"damaris\" options=\"usm_on\"/> ");
+	}
 }
 
 

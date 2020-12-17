@@ -226,9 +226,9 @@ cs_preprocess_set_damaris_param_from_mesh(cs_mesh_t *m)
 	/* the z direction is distributed over mpi ranks */
 	segments_z_per_rank = segments_z/cs_glob_n_ranks;
 
-	BFT_MALLOC(meshx, segments_x, double);
-	BFT_MALLOC(meshy, segments_y, double);
-	BFT_MALLOC(meshz, segments_z_per_rank, double);
+	BFT_MALLOC(meshx, segments_x+1, double);
+	BFT_MALLOC(meshy, segments_y+1, double);
+	BFT_MALLOC(meshz, segments_z_per_rank+1, double);
 
 	/* these dimensions are governed by the mesh creation script mesh_cube_xyz.py */
 	double x_step, y_step, z_step ;
@@ -262,6 +262,12 @@ cs_preprocess_set_damaris_param_from_mesh(cs_mesh_t *m)
 								 _("ERROR: Damaris damaris_write():\n"
 								   "Variable: \"%s\"."), "coord/meshy");
 	}
+
+	int64_t pos;
+	pos = cs_glob_rank_id * segments_z_per_rank ;
+	damaris_err = damaris_set_position("coord/meshz" , &pos);
+	if (damaris_err != DAMARIS_OK )
+			bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() coord/meshz"));
 	damaris_err = damaris_write("coord/meshz" , meshz);
 	if (damaris_err != DAMARIS_OK ) {
 	  bft_error(__FILE__, __LINE__, damaris_err,
