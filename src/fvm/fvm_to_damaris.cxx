@@ -101,6 +101,9 @@ typedef struct {
                                   </writer>
                                    Default is off if the string is not present */
 
+  bool         rect_grid_on;    /* If true then run original Damaris rectilinear grid
+   	   	   	   	   	   	   	       setup code for coord/xmesh etc. */
+
   FILE        *tracefile;       /* optional file for tracing */
 
 //  int          rank;          /* Rank of current process in communicator */
@@ -256,7 +259,7 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
     {
 		int64_t pos[3];
 
-		double * mypressure ;
+		/*double * mypressure ;
 		double * mypressure_cpy ;
 		int x = param_x ;
 		int y = param_y ;
@@ -276,7 +279,7 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 			printf("\n");
 		}
 
-		printf("\n");
+		printf("\n");*/
 
 		// N.B. x,y,z == 0,1,2 indices
 		pos[0] = 0;
@@ -289,15 +292,15 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 								 _("ERROR: Damaris damaris_set_position():\n"
 								   "field: \"%s\"."), "fields/pressure");
 		}
-		// damaris_err = damaris_write("fields/pressure" ,field_values[0]);
-		damaris_err = damaris_write("fields/pressure" ,mypressure);
+		damaris_err = damaris_write("fields/pressure" ,field_values[0]);
+		//damaris_err = damaris_write("fields/pressure" ,mypressure);
 		if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 								 _("ERROR: Damaris damaris_write():\n"
 								   "field: \"%s\"."), "fields/pressure");
 		}
 
-		BFT_FREE(mypressure);
+		// BFT_FREE(mypressure);
 
     }
 
@@ -306,7 +309,7 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
     {
     	int64_t pos[4];
 
-    	double * mypressure ;
+    	/*double * mypressure ;
     	double * mypressure_cpy ;
     	int v3 = 3 ;
 		int x = param_x ;
@@ -322,6 +325,7 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 						*mypressure_cpy = (double) ((zc ) * y * x * v3)+(yc *x*v3)+(xc*v3) + vc;
 						mypressure_cpy++ ;
 					}
+		*/
 
 		pos[0] = 0;
 		pos[1] = 0;
@@ -334,15 +338,15 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 								 _("ERROR: Damaris damaris_set_position():\n"
 								   "field: \"%s\"."), "fields/velocity");
 		}
-		// damaris_err = damaris_write("fields/velocity" ,field_values[0]);
-		damaris_err = damaris_write("fields/velocity" ,mypressure);
+		damaris_err = damaris_write("fields/velocity" ,field_values[0]);
+		//damaris_err = damaris_write("fields/velocity" ,mypressure);
 		if (damaris_err != DAMARIS_OK ) {
 			bft_error(__FILE__, __LINE__, damaris_err,
 								 _("ERROR: Damaris damaris_write():\n"
 								   "field: \"%s\"."), "fields/velocity");
 		}
 		// damaris_end_iteration();
-		BFT_FREE(mypressure);
+		// BFT_FREE(mypressure);
     }
     //else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 8) == 0 )
 
@@ -420,7 +424,7 @@ fvm_to_damaris_init_writer(const char             *name,
   int rank_step = 1;
   bool trace = false;
   bool usm_on = false;
-
+  bool rect_grid_on = false;  // not used as too difficult to get resulting switch in cs_solver.c
 
   if (options != NULL) {
 
@@ -438,11 +442,13 @@ fvm_to_damaris_init_writer(const char             *name,
       if ((l_opt == 5) && (strncmp(options + i1, "trace", l_opt) == 0))
         trace = true;
 
-      else if ((l_opt == 7) && (strncmp(options + i1, "usm_on", l_opt) == 0)) {
+      else if ((l_opt == 6) && (strncmp(options + i1, "usm_on", l_opt) == 0)) {
     	  usm_on = true;
         trace = true;
       }
-
+	  else if ((l_opt == 12) && (strncmp(options + i1, "rect_grid_on", l_opt) == 0)) {
+		  rect_grid_on = true;
+	  }
       else if ((strncmp(options + i1, rs, l_rs) == 0)) {
         if (l_opt < l_rs+32) { /* 32 integers more than enough
                                   for maximum integer string */
@@ -459,15 +465,14 @@ fvm_to_damaris_init_writer(const char             *name,
     }
   }
 
-
   /* Initialize writer */
-
   BFT_MALLOC(w, 1, fvm_to_damaris_writer_t);
 
   BFT_MALLOC(w->name, strlen(name) + 1, char);
   strcpy(w->name, name);
 
   w->usm_on = usm_on;
+  w->rect_grid_on =rect_grid_on ;
   w->tracefile = NULL;
   w->damaris_mpi_comm  = comm ;
 //  w->rank = 0;
@@ -712,6 +717,15 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 	fvm_to_damaris_writer_t  *w = (fvm_to_damaris_writer_t *)this_writer_p;
 
+	/* Flag w->usm_on  is set in the Code_Saturne input xml file
+	 * in the Damaris writer (format name="damaris")
+	   <writer id="1" label="damaris_results">
+        <directory name="postprocessing"/>
+        <format name="damaris" options="usm_on"/>
+        <frequency period="time_step">1</frequency>
+        <time_dependency choice="fixed_mesh"/>
+      </writer>
+	 */
 	if (w->usm_on == true)
 	{
 	const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);

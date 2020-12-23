@@ -377,9 +377,9 @@ _run(void)
                                  cs_glob_mesh_quantities);
 
 
-    /* Set up Damaris mesh extents */
+    /* Set up Damaris mesh extents - This is for old rectilinear mesh type */
 #if defined(HAVE_DAMARIS)
-    cs_preprocess_set_damaris_param_from_mesh(cs_glob_mesh) ;
+//   cs_preprocess_set_damaris_param_from_mesh(cs_glob_mesh) ;
 #endif
 
     /* Initialize gradient computation */

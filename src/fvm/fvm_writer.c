@@ -429,7 +429,7 @@ static fvm_writer_format_t _fvm_writer_format_list[11] = {
   /* Damaris Catalyst writer */
   {
     "Damaris",
-      "3.2+",
+      "1.3+",
       (  FVM_WRITER_FORMAT_USE_EXTERNAL
        | FVM_WRITER_FORMAT_HAS_POLYGON
        | FVM_WRITER_FORMAT_HAS_POLYHEDRON),

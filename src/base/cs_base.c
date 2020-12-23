@@ -489,7 +489,7 @@ _cs_base_exit(int status)
 
       else { /*  if (status == EXIT_SUCCESS) */
 
-        MPI_Barrier(cs_glob_mpi_comm);  // was : MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);  // was : MPI_Barrier(MPI_COMM_WORLD);
 #if defined(HAVE_DAMARIS)
         damaris_finalize() ;
 #endif    
@@ -984,7 +984,7 @@ _cs_base_mpi_setup(const char *app_name)
   int nbr, rank;
   int app_num = -1;
 
-  int damaris_is_client ;
+  int damaris_is_client = 0 ;
   int damaris_err ;
 
 #if (defined(DEBUG) || !defined(NDEBUG)) && (MPI_VERSION >= 2)
@@ -1006,17 +1006,17 @@ _cs_base_mpi_setup(const char *app_name)
   if (app_num > -1){
 
 #if defined(HAVE_DAMARIS)
-    _cs_base_err_printf(_("\nDAMARIS error: Coupled processing is not tested \
-currently when using Code_Saturne with Damaris I/O support\n"));
-    cs_exit(EXIT_FAILURE); 
+     _cs_base_err_printf(_("\nDAMARIS error: Coupled processing is not tested currently when using Code_Saturne with Damaris I/O support\n"));
+     cs_exit(EXIT_FAILURE);
 #endif
      MPI_Comm_split(MPI_COMM_WORLD, app_num, rank, &cs_glob_mpi_comm);
 
   }
   else {
 #if defined(HAVE_DAMARIS)
-   damaris_err = damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
 
+
+   damaris_err = damaris_initialize("code_saturne_damaris.xml", MPI_COMM_WORLD);
    if (damaris_err != DAMARIS_OK ) {
 	   _cs_base_err_printf(_("\nDAMARIS error: damaris_initialize() failed\n"));
 	   cs_exit(damaris_err);
@@ -1034,53 +1034,59 @@ currently when using Code_Saturne with Damaris I/O support\n"));
 	   	   _cs_base_err_printf(_("\nDAMARIS error: damaris_client_comm_get() failed\n"));
 	   	   cs_exit(damaris_err);
 	   }
-
-	/* Set the Damaris parameter to be used in data layouts */
-	damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
-	if (damaris_err != DAMARIS_OK ) {
-		_cs_base_err_printf(_("ERROR: Damaris damaris_parameter_set():\nparamater: \"cs_glob_n_ranks\""));
-		cs_exit(damaris_err);
-	}
-
+   } else {
+	   printf("  Damaris Server returned ...");
+	   _cs_base_exit(0) ;
    }
+
     
 #else
     cs_glob_mpi_comm = MPI_COMM_WORLD;
 #endif
   }
 
-  MPI_Comm_size(cs_glob_mpi_comm, &nbr);
-  MPI_Comm_rank(cs_glob_mpi_comm, &rank);
+	  MPI_Comm_size(cs_glob_mpi_comm, &nbr);
+	  MPI_Comm_rank(cs_glob_mpi_comm, &rank);
 
-  cs_glob_n_ranks = nbr;
+	  cs_glob_n_ranks = nbr;
 
-  if (cs_glob_n_ranks > 1)
-    cs_glob_rank_id = rank;
+	  if (cs_glob_n_ranks > 1)
+		cs_glob_rank_id = rank;
 
-  /* cs_glob_mpi_comm may not be freed at this stage, as it
-     it may be needed to build intercommunicators for couplings,
-     but we may set cs_glob_rank_id to its serial value if
-     we are only using MPI for coupling. */
+	  /* cs_glob_mpi_comm may not be freed at this stage, as it
+		 it may be needed to build intercommunicators for couplings,
+		 but we may set cs_glob_rank_id to its serial value if
+		 we are only using MPI for coupling. */
 
-  if (cs_glob_n_ranks == 1 && app_num > -1)
-    cs_glob_rank_id = -1;
+	  if (cs_glob_n_ranks == 1 && app_num > -1)
+		cs_glob_rank_id = -1;
 
-  /* Initialize datatype conversion */
 
-  _cs_datatype_to_mpi_init();
+	  /* Set the Damaris parameter to be used in data layouts */
+	  damaris_err = damaris_parameter_set("cs_glob_n_ranks",&cs_glob_n_ranks,sizeof(int));
+	  if (damaris_err != DAMARIS_OK ) {
+		_cs_base_err_printf(_("ERROR: Damaris damaris_parameter_set():\nparamater: \"cs_glob_n_ranks\""));
+		cs_exit(damaris_err);
+	  }
 
-  /* Initialize error handlers */
+
+	  /* Initialize datatype conversion */
+
+	  _cs_datatype_to_mpi_init();
+
+	  /* Initialize error handlers */
 
 #if (defined(DEBUG) || !defined(NDEBUG)) && (MPI_VERSION >= 2)
-  if (nbr > 1 || cs_glob_mpi_comm != MPI_COMM_NULL) {
-    MPI_Comm_create_errhandler(&_cs_base_mpi_error, &errhandler);
-    MPI_Comm_set_errhandler(MPI_COMM_WORLD, errhandler);
-    if (   cs_glob_mpi_comm != MPI_COMM_WORLD
-        && cs_glob_mpi_comm != MPI_COMM_NULL)
-      MPI_Comm_set_errhandler(cs_glob_mpi_comm, errhandler);
-    MPI_Errhandler_free(&errhandler);
-  }
+	  if (nbr > 1 || cs_glob_mpi_comm != MPI_COMM_NULL) {
+		MPI_Comm_create_errhandler(&_cs_base_mpi_error, &errhandler);
+		MPI_Comm_set_errhandler(MPI_COMM_WORLD, errhandler);
+		if (   cs_glob_mpi_comm != MPI_COMM_WORLD
+			&& cs_glob_mpi_comm != MPI_COMM_NULL)
+		  MPI_Comm_set_errhandler(cs_glob_mpi_comm, errhandler);
+		MPI_Errhandler_free(&errhandler);
+	  }
 #endif
+
 }
 
 #endif /* HAVE_MPI */
