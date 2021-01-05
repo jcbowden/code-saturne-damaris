@@ -549,7 +549,7 @@ fvm_to_damaris_set_mesh_time(void          *this_writer_p,
 
 
 /*----------------------------------------------------------------------------
- * Define VTK geometrical element type according to FVM element type
+ * Define VTK geometric element type according to FVM element type
  * The definitions come from VTK header vtkCellType.h
  *
  * parameters:
@@ -899,7 +899,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	} /* End of loop on sections */
 
 
-   /* Communicate global values */
+   /* Communicate global values which are needed for calls to damaris_set_position() for the various data sets */
    /*---------------------------*/
 
    /*  n_sections_total == sum of n_sections over all ranks,
@@ -1117,7 +1117,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 	w->modified = true;
 	} else {
-		 printf("INFO: fvm_to_damaris_export_nodal() Damaris has not initialized the VTK Unstructured Mesh data. To enable set <writer><format name=\"damaris\" options=\"usm_on\"/> ");
+		 printf("DAMARIS INFO: fvm_to_damaris_export_nodal() Damaris has not initialized the VTK Unstructured Mesh data. To enable set <writer><format name=\"damaris\" options=\"usm_on\"/> ");
 	}
 }
 
