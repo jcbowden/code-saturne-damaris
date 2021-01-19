@@ -37,7 +37,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-
+#include <climits>
 /*----------------------------------------------------------------------------
  * Asynchronous I/O and in-situ visulisation library header
  *----------------------------------------------------------------------------*/
@@ -154,6 +154,7 @@ typedef struct {
 
 static fvm_to_damaris_writer_t  *_writer = NULL;
 
+
 /*============================================================================
  * Private function definitions
  *============================================================================*/
@@ -176,7 +177,6 @@ static fvm_to_damaris_writer_t  *_writer = NULL;
  *   field_values     <-- array of associated field value arrays
  *   f                <-- associated object handle
  *----------------------------------------------------------------------------*/
-
 static void
 _export_field_values_e(const fvm_nodal_t         *mesh,
                        const char                *fieldname,
@@ -187,27 +187,27 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
                        cs_datatype_t              datatype,
                        const void          *const field_values[])
 {
-  /*assert(f != NULL);*/
+	CS_UNUSED(interlace);
+	CS_UNUSED(parent_num_shift);
+	CS_UNUSED(datatype);
+    int  section_id;
 
-  int  section_id;
-/*  double  *values = NULL; */
+    const int dest_dim = (dim == 6) ? 9 : dim;
 
-  const int dest_dim = (dim == 6) ? 9 : dim;
+	cs_lnum_t start_id = 0;
+	cs_lnum_t src_shift = 0;
 
- /* values = vtkDoubleArray::SafeDownCast
-    (f->GetCellData()->GetArray(fieldname))
-    ->WritePointer(0, dest_dim*f->GetNumberOfCells());
+	int damaris_err = DAMARIS_OK ;
 
-  assert(values != NULL);
-  */
+	int n_elements_offset ;
+	damaris_err = damaris_parameter_get("n_elements_offset",&n_elements_offset,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+	bft_error(__FILE__, __LINE__, damaris_err,
+						 _("ERROR: Damaris damaris_parameter_get():\n"
+						   "Parameter: \"%s\"."), "n_elements_offset");
+	}
 
-  /* Distribute partition to block values */
-
-  cs_lnum_t start_id = 0;
-  cs_lnum_t src_shift = 0;
-
-  /* loop on sections which should be appended */
-
+  // loop on sections which should be appended
   const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);
 
   for (section_id = 0; section_id < mesh->n_sections; section_id++) {
@@ -217,21 +217,155 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
     if (section->entity_dim < elt_dim)
       continue;
 
-   /* fvm_convert_array(dim,
-                      0,
-                      dest_dim,
-                      src_shift,
-                      section->n_elements + src_shift,
-                      interlace,
-                      datatype,
-                      CS_DOUBLE,
-                      n_parent_lists,
-                      parent_num_shift,
-                      section->parent_element_num,
-                      field_values,
-                      values + start_id);
-*/
-    //if (dim == 1)
+   // fvm_convert_array(dim,
+   //                   0,
+   //                   dest_dim,
+   //                   src_shift,
+   //                   section->n_elements + src_shift,
+   //                   interlace,
+   //                   datatype,
+   //                   CS_DOUBLE,
+   //                   n_parent_lists,
+   //                   parent_num_shift,
+   //                   section->parent_element_num,
+   //                   field_values,
+   //                   values + start_id);
+
+    // copy input fieldname to lower case
+    int t1 = 0;
+    char fieldname_lwrcase[9];
+    while ( (t1<8)  && fieldname[t1])
+    {
+    	fieldname_lwrcase[t1] = tolower(fieldname[t1]);
+    	t1++;
+    }
+
+
+    if ( strncmp( fieldname_lwrcase, "pressure", 8) == 0 )
+    {
+		int64_t pos[1];
+
+		pos[0] = n_elements_offset + start_id;
+
+		damaris_err = damaris_set_position("fields/pressure" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/pressure");
+		}
+		damaris_err = damaris_write("fields/pressure" ,field_values[0]);
+		//damaris_err = damaris_write("fields/pressure" ,mypressure);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/pressure");
+		}
+
+    }
+    else if ( strncmp( fieldname_lwrcase, "velocity", 8) == 0 )
+    {
+    	int64_t pos[2];
+
+		pos[0] = 0;
+		pos[1] = n_elements_offset + start_id;
+
+		damaris_err = damaris_set_position("fields/velocity" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/velocity");
+		}
+		damaris_err = damaris_write("fields/velocity" ,field_values[0]);
+		//damaris_err = damaris_write("fields/velocity" ,mypressure);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/velocity");
+		}
+    }
+    //else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 8) == 0 )
+
+    start_id += section->n_elements*dest_dim;
+    if (n_parent_lists == 0)
+      src_shift += section->n_elements;
+
+
+  }
+
+  // Special case for symmetric tensors - not implemented
+
+}
+
+
+/*============================================================================
+ * Private function definitions
+ *============================================================================*/
+
+/*----------------------------------------------------------------------------
+ * Write field values associated with element values of a nodal mesh to VTK.
+ *
+ * Output fields are non interlaced. Input arrays may be interlaced or not.
+ *
+ * parameters:
+ *   mesh             <-- pointer to nodal mesh structure
+ *   dim              <-- field dimension
+ *   interlace        <-- indicates if field in memory is interlaced
+ *   n_parent_lists   <-- indicates if field values are to be obtained
+ *                        directly through the local entity index (when 0) or
+ *                        through the parent entity numbers (when 1 or more)
+ *   parent_num_shift <-- parent list to common number index shifts;
+ *                        size: n_parent_lists
+ *   datatype         <-- indicates the data type of (source) field values
+ *   field_values     <-- array of associated field value arrays
+ *   f                <-- associated object handle
+ *----------------------------------------------------------------------------*/
+/*static void
+_export_field_values_e(const fvm_nodal_t         *mesh,
+                       const char                *fieldname,
+                       int                        dim,
+                       cs_interlace_t             interlace,
+                       int                        n_parent_lists,
+                       const cs_lnum_t            parent_num_shift[],
+                       cs_datatype_t              datatype,
+                       const void          *const field_values[])
+{
+
+  int  section_id;
+
+
+  const int dest_dim = (dim == 6) ? 9 : dim;
+
+
+  // Distribute partition to block values
+
+  cs_lnum_t start_id = 0;
+  cs_lnum_t src_shift = 0;
+
+  // loop on sections which should be appended
+  const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);
+
+  for (section_id = 0; section_id < mesh->n_sections; section_id++) {
+
+    const fvm_nodal_section_t  *section = mesh->sections[section_id];
+
+    if (section->entity_dim < elt_dim)
+      continue;
+
+   // fvm_convert_array(dim,
+   //                   0,
+   //                   dest_dim,
+   //                   src_shift,
+   //                   section->n_elements + src_shift,
+   //                   interlace,
+   //                   datatype,
+   //                   CS_DOUBLE,
+   //                   n_parent_lists,
+   //                   parent_num_shift,
+   //                   section->parent_element_num,
+   //                   field_values,
+   //                   values + start_id);
+
+    // copy input fieldname to lower case
     int t1 = 0;
     char fieldname_lwrcase[9];
     while ( (t1<8)  && fieldname[t1])
@@ -255,33 +389,12 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 	int param_y ;
 	damaris_err = damaris_parameter_get("y",&param_y,sizeof(int));
 
+
     if ( strncmp( fieldname_lwrcase, "pressure", 8) == 0 )
     {
 		int64_t pos[3];
 
-		/*double * mypressure ;
-		double * mypressure_cpy ;
-		int x = param_x ;
-		int y = param_y ;
-		int z_persectn = param_z / cs_glob_n_ranks;
-		int size_sectn = x * y * z_persectn ;
-		BFT_MALLOC( mypressure, size_sectn, double );
-		mypressure_cpy = mypressure ;
-		for (int zc = cs_glob_rank_id*z_persectn ; zc < (cs_glob_rank_id+1)*z_persectn ; zc++) {
-			for (int yc = 0; yc < y ; yc++){
-				for (int xc = 0 ; xc < x ; xc++) {
-					*mypressure_cpy = (double) ((zc * y * x)+(yc *x)+xc) ;
-					 printf("%.1f", (*mypressure_cpy));
-					mypressure_cpy++ ;
-				}
-				printf("\n");
-			}
-			printf("\n");
-		}
-
-		printf("\n");*/
-
-		// N.B. x,y,z == 0,1,2 indices
+		//// N.B. x,y,z == 0,1,2 indices
 		pos[0] = 0;
 		pos[1] = 0;
 		pos[2] = cs_glob_rank_id*param_z/cs_glob_n_ranks;
@@ -309,23 +422,6 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
     {
     	int64_t pos[4];
 
-    	/*double * mypressure ;
-    	double * mypressure_cpy ;
-    	int v3 = 3 ;
-		int x = param_x ;
-		int y = param_y ;
-		int z_persectn = param_z / cs_glob_n_ranks;  // cs_glob_rank_id*z_persectn
-		int size_sectn = x * y * z_persectn *v3  ;
-		BFT_MALLOC( mypressure, size_sectn, double );
-		mypressure_cpy = mypressure ;
-		for (int zc =cs_glob_rank_id*z_persectn ; zc < (cs_glob_rank_id+1)*z_persectn ;  zc++)
-			for (int yc = 0; yc < y ; yc++)
-				for (int xc = 0 ; xc < x ; xc++)
-					for (int vc = 0 ; vc < v3 ; vc++) {
-						*mypressure_cpy = (double) ((zc ) * y * x * v3)+(yc *x*v3)+(xc*v3) + vc;
-						mypressure_cpy++ ;
-					}
-		*/
 
 		pos[0] = 0;
 		pos[1] = 0;
@@ -357,23 +453,199 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 
   }
 
-  /* Special case for symmetric tensors */
-/*
-  if (dim == 6) {
+  // Special case for symmetric tensors - not implemented
 
-    cs_lnum_t n_elts = f->GetNumberOfCells();
-    for (cs_lnum_t i = 0; i < n_elts; i++) {
-      values[9*i + 8] = values[9*i + 2];
-      values[9*i + 7] = values[9*i + 4];
-      values[9*i + 6] = values[9*i + 5];
-      values[9*i + 4] = values[9*i + 1];
-      values[9*i + 2] = values[9*i + 5];
-      values[9*i + 1] = values[9*i + 3];
-      values[9*i + 5] = values[9*i + 7];
+} */
+/*
+static void
+_export_field_values_e(const fvm_nodal_t         *mesh,
+                       const char                *fieldname,
+                       int                        dim,
+                       cs_interlace_t             interlace,
+                       int                        n_parent_lists,
+                       const cs_lnum_t            parent_num_shift[],
+                       cs_datatype_t              datatype,
+                       const void          *const field_values[])
+{
+
+  int  section_id;
+
+
+  const int dest_dim = (dim == 6) ? 9 : dim;
+
+
+  // Distribute partition to block values
+
+  cs_lnum_t start_id = 0;
+  cs_lnum_t src_shift = 0;
+
+  // loop on sections which should be appended
+
+  const int  elt_dim = fvm_nodal_get_max_entity_dim(mesh);
+
+  for (section_id = 0; section_id < mesh->n_sections; section_id++) {
+
+    const fvm_nodal_section_t  *section = mesh->sections[section_id];
+
+    if (section->entity_dim < elt_dim)
+      continue;
+
+   // fvm_convert_array(dim,
+    //                  0,
+   //                   dest_dim,
+   //                   src_shift,
+   //                   section->n_elements + src_shift,
+   //                   interlace,
+   //                   datatype,
+  //                    CS_DOUBLE,
+  //                    n_parent_lists,
+   //                   parent_num_shift,
+   //                   section->parent_element_num,
+   //                   field_values,
+   //                   values + start_id);
+
+    // copy input fieldname to lower case
+    int t1 = 0;
+    char fieldname_lwrcase[9];
+    while ( (t1<8)  && fieldname[t1])
+    {
+    	fieldname_lwrcase[t1] = tolower(fieldname[t1]);
+    	t1++;
     }
+
+
+    int damaris_err = DAMARIS_OK ;
+
+    int param_z ;
+	damaris_err = damaris_parameter_get("z",&param_z,sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		bft_error(__FILE__, __LINE__, damaris_err,
+							 _("ERROR: Damaris damaris_parameter_get():\n"
+							   "Parameter: \"%s\"."), "z");
+	}
+	int param_x ;
+	damaris_err = damaris_parameter_get("x",&param_x,sizeof(int));
+	int param_y ;
+	damaris_err = damaris_parameter_get("y",&param_y,sizeof(int));
+
+    if ( strncmp( fieldname_lwrcase, "pressure", 8) == 0 )
+    {
+		int64_t pos[3];
+
+		//double * mypressure ;
+		//double * mypressure_cpy ;
+		//int x = param_x ;
+		//int y = param_y ;
+		//int z_persectn = param_z / cs_glob_n_ranks;
+		//int size_sectn = x * y * z_persectn ;
+		//BFT_MALLOC( mypressure, size_sectn, double );
+		//mypressure_cpy = mypressure ;
+		//for (int zc = cs_glob_rank_id*z_persectn ; zc < (cs_glob_rank_id+1)*z_persectn ; zc++) {
+		//	for (int yc = 0; yc < y ; yc++){
+		//		for (int xc = 0 ; xc < x ; xc++) {
+		//			*mypressure_cpy = (double) ((zc * y * x)+(yc *x)+xc) ;
+		//			 printf("%.1f", (*mypressure_cpy));
+		//			mypressure_cpy++ ;
+		//		}
+		//		printf("\n");
+		//	}
+		//	printf("\n");
+		//}
+//
+		//printf("\n");
+//
+		//// N.B. x,y,z == 0,1,2 indices
+		pos[0] = 0;
+		pos[1] = 0;
+		pos[2] = cs_glob_rank_id*param_z/cs_glob_n_ranks;
+
+		damaris_err = damaris_set_position("fields/pressure" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/pressure");
+		}
+		damaris_err = damaris_write("fields/pressure" ,field_values[0]);
+		//damaris_err = damaris_write("fields/pressure" ,mypressure);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/pressure");
+		}
+
+		// BFT_FREE(mypressure);
+
+    }
+
+    //else if (dim == 3)
+    else if ( strncmp( fieldname_lwrcase, "velocity", 8) == 0 )
+    {
+    	int64_t pos[4];
+
+    	//double * mypressure ;
+    	//double * mypressure_cpy ;
+    	//int v3 = 3 ;
+		//int x = param_x ;
+		//int y = param_y ;
+		//int z_persectn = param_z / cs_glob_n_ranks;  // cs_glob_rank_id*z_persectn
+		//int size_sectn = x * y * z_persectn *v3  ;
+		//BFT_MALLOC( mypressure, size_sectn, double );
+		//mypressure_cpy = mypressure ;
+		//for (int zc =cs_glob_rank_id*z_persectn ; zc < (cs_glob_rank_id+1)*z_persectn ;  zc++)
+		//	for (int yc = 0; yc < y ; yc++)
+		//		for (int xc = 0 ; xc < x ; xc++)
+		//			for (int vc = 0 ; vc < v3 ; vc++) {
+		//				*mypressure_cpy = (double) ((zc ) * y * x * v3)+(yc *x*v3)+(xc*v3) + vc;
+		//				mypressure_cpy++ ;
+		//			}
+		//
+
+		pos[0] = 0;
+		pos[1] = 0;
+		pos[2] = 0;
+		pos[3] = (cs_glob_rank_id*param_z/cs_glob_n_ranks);
+
+		damaris_err = damaris_set_position("fields/velocity" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/velocity");
+		}
+		damaris_err = damaris_write("fields/velocity" ,field_values[0]);
+		//damaris_err = damaris_write("fields/velocity" ,mypressure);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/velocity");
+		}
+		// damaris_end_iteration();
+		// BFT_FREE(mypressure);
+    }
+    //else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 8) == 0 )
+
+    start_id += section->n_elements*dest_dim;
+    if (n_parent_lists == 0)
+      src_shift += section->n_elements;
+
+
   }
-  */
+
+  // Special case for symmetric tensors
+  //if (dim == 6) {
+  //  cs_lnum_t n_elts = f->GetNumberOfCells();
+  //  for (cs_lnum_t i = 0; i < n_elts; i++) {
+  //    values[9*i + 8] = values[9*i + 2];
+  //    values[9*i + 7] = values[9*i + 4];
+  ////    values[9*i + 6] = values[9*i + 5];
+  //    values[9*i + 4] = values[9*i + 1];
+  //    values[9*i + 2] = values[9*i + 5];
+  //    values[9*i + 1] = values[9*i + 3];
+  //    values[9*i + 5] = values[9*i + 7];
+  //  }
+  //}
+
 }
+*/
 
 /*! (DOXYGEN_SHOULD_SKIP_THIS) \endcond */
 
@@ -416,13 +688,11 @@ fvm_to_damaris_init_writer(const char             *name,
 #endif
 {
   CS_UNUSED(time_dependency);
+  CS_UNUSED(path);
 
   fvm_to_damaris_writer_t  *w = NULL;
 
   /* Parse options */
-
-  int rank_step = 1;
-  bool trace = false;
   bool usm_on = false;
   bool rect_grid_on = false;  // not used as too difficult to get resulting switch in cs_solver.c
 
@@ -439,26 +709,12 @@ fvm_to_damaris_init_writer(const char             *name,
       for (i2 = i1; i2 < l_tot && options[i2] != ' '; i2++);
       int l_opt = i2 - i1;
 
-      if ((l_opt == 5) && (strncmp(options + i1, "trace", l_opt) == 0))
-        trace = true;
-
-      else if ((l_opt == 6) && (strncmp(options + i1, "usm_on", l_opt) == 0)) {
+      if ((l_opt == 6) && (strncmp(options + i1, "usm_on", l_opt) == 0)) {
     	  usm_on = true;
-        trace = true;
       }
 	  else if ((l_opt == 12) && (strncmp(options + i1, "rect_grid_on", l_opt) == 0)) {
 		  rect_grid_on = true;
 	  }
-      else if ((strncmp(options + i1, rs, l_rs) == 0)) {
-        if (l_opt < l_rs+32) { /* 32 integers more than enough
-                                  for maximum integer string */
-          char options_c[32];
-          strncpy(options_c, options+i1+l_rs, l_opt-l_rs);
-          options_c[l_opt-l_rs] = '\0';
-          rank_step = atoi(options_c);
-
-        }
-      }
 
       for (i1 = i2 + 1; i1 < l_tot && options[i1] == ' '; i1++);
 
@@ -713,7 +969,7 @@ void
 fvm_to_damaris_export_nodal(void               *this_writer_p,
                             const fvm_nodal_t  *mesh)
 {
-	int  mesh_id, section_id;
+	int  section_id;
 
 	fvm_to_damaris_writer_t  *w = (fvm_to_damaris_writer_t *)this_writer_p;
 
@@ -736,7 +992,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	int  vtk_type_stride ;
 	int  n_sections = 0 ;
 	unsigned long n_connectivity = 0 ;
-	unsigned long  n_elements = 0;
+	unsigned long  n_elements_local = 0;
 
 	/* Damaris parameter values:  n_sections, n_vertices, n_connectivity, n_elements
 	 *
@@ -751,7 +1007,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 		if (section->entity_dim < elt_dim)
 		  continue;
 	   n_sections++ ;
-	   n_elements += section->n_elements;
+	   n_elements_local += section->n_elements;
 	   vtk_type_stride                = fvm_nodal_n_vertices_element[section->type];
 	   // This will need to be changed if these elements are present in a typical mesh
 	   if ((section->type != FVM_FACE_POLY) &&  (section->type != FVM_CELL_POLY))
@@ -803,7 +1059,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	if (mesh->parent_vertex_num != NULL) {
 		const cs_lnum_t  *parent_vertex_num = mesh->parent_vertex_num;
 		for (size_t i = 0; i < n_vertices; i++) {
-			for (size_t j = 0; j < mesh->dim; j++)
+			for (int j = 0; j < mesh->dim; j++)
 				vrtx_umesh_xyz[i*mesh->dim + j] = vertex_coords[(parent_vertex_num[i]-1)*mesh->dim + j];
 			}
 	}
@@ -850,6 +1106,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	// fvm_nodal_n_vertices_element(section->type)
 	// sectn_connectivity
 	unsigned long rolling_offset = 0;
+	section_id_real = 0 ;
 	for (section_id = 0; section_id < mesh->n_sections; section_id++) {
 
 		const fvm_nodal_section_t  *section = mesh->sections[section_id];
@@ -896,6 +1153,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 		}
 
 		rolling_offset += sect_sizes[section_id_real] * stride ;
+		section_id_real++ ;
 	} /* End of loop on sections */
 
 
@@ -969,17 +1227,58 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	}
 
 
+	// n_elements_local is the total number of local elements in local mesh sections. It is equal to the
+	// number of field values for a zonal field on the current client.
+	unsigned long  n_elements_total ;
+	MPI_Allreduce(&n_elements_local, &n_elements_total, 1, MPI_UNSIGNED_LONG, MPI_SUM, w->damaris_mpi_comm) ;
+	// Need to check for overflow of integer type as Damaris paramaters are not long int capable.
+	if (n_elements_local > INT_MAX) {
+		bft_error(__FILE__, __LINE__, -1, _("ERROR: OVERFLOW Detected. Parameter: n_elements_local \n Damaris Parameters should be in range of C type int"));
+	}
+	if (n_elements_total > INT_MAX) {
+		bft_error(__FILE__, __LINE__, -1, _("ERROR: OVERFLOW Detected. Parameter: n_elements_total \n Damaris Parameters should be in range of C type int"));
+	}
+
+	unsigned long * elements_rank_offsets ;  // to be computed - Probably could use MPI_Scan()?
+	BFT_MALLOC(elements_rank_offsets, cs_glob_n_ranks, unsigned long );
+	unsigned long * elements_rank_sizes ;    // to be gathered from each client rank
+	BFT_MALLOC(elements_rank_sizes, cs_glob_n_ranks, unsigned long );
+	// This gets the n_connectivity of each rank, which is the size of the connectivity of all sections on the current rank
+	MPI_Allgather(&n_elements_local, 1, MPI_UNSIGNED_LONG, elements_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
+	connectivity_rank_offsets[0] = 0l ;
+	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
+	{
+		elements_rank_offsets[t1] = elements_rank_offsets[t1-1] + elements_rank_sizes[t1-1];
+	}
 
 	/* Pass everything to Damaris */
 	/*----------------------------*/
 
 	int damaris_err = DAMARIS_OK;
 
+	// The offset is used so that output functionality (e.g. HDF5Store) knows global offsets of the data of the rank
+	// So, it is not strictly needed, however is here for completeness and is used above, so do not remove.
+	int temp_int = elements_rank_offsets[cs_glob_rank_id] ;
+	damaris_err = damaris_parameter_set("n_elements_offset",&temp_int, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_elements_offset"));
+	}
+	temp_int = n_elements_local;
+	damaris_err = damaris_parameter_set("n_elements_local",&temp_int, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_elements_local"));
+	}
+	temp_int = n_elements_total;
+	damaris_err = damaris_parameter_set("n_elements_total",&temp_int, sizeof(int));
+	if (damaris_err != DAMARIS_OK ) {
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_elements_total"));
+	}
+
 	// mesh_dim and n_vertices_local affects the size of the vertices array (unstructured_mesh_xyz) on each rank
 	int dim = mesh->dim ;
 	damaris_err = damaris_parameter_set("mesh_dim",&dim, sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: mesh_dim"));
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: mesh_dim"));
 	}
 
 	// N.B. damaris_parameter_set("cs_glob_n_ranks"...) has been set in cs_base.c in function  _cs_base_mpi_setup()
@@ -987,36 +1286,36 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	// n_sections_total, n_vertices_total, n_connectivity_total
 	damaris_err = damaris_parameter_set("n_sections_total",&n_sections_total, sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_sections_total"));
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_sections_total"));
 	}
 
 	damaris_err = damaris_parameter_set("n_vertices_total",&n_vertices_total, sizeof(unsigned long));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_vertices_total"));
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_vertices_total"));
 	}
 
 	damaris_err = damaris_parameter_set("n_connectivity_total",&n_connectivity_total, sizeof(unsigned long));
 	if (damaris_err != DAMARIS_OK ) {
-		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_parameter_set():\nparamater: n_connectivity_total"));
+		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_parameter_set():\n  parameter: n_connectivity_total"));
 	}
 
 	/* Local (per process) size parameters */
 	// n_sections, n_vertices, n_connectivity, they can be different for each MPI process
 	damaris_err = damaris_parameter_set("n_sections_local",&n_sections, sizeof(int));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_sections_local"));
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_sections_local"));
 	}
 
 
 	damaris_err = damaris_parameter_set("n_vertices_local",&n_vertices, sizeof(unsigned long));
 	if (damaris_err != DAMARIS_OK ) {
-		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\nparamater: n_vertices_local"));
+		  bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_parameter_set():\n  parameter: n_vertices_local"));
 	}
 
 	// n_connectivity_local is the total size of all connectivity indices for the sections on a rank
 	damaris_err = damaris_parameter_set("n_connectivity_local",&n_connectivity, sizeof(unsigned long));
 	if (damaris_err != DAMARIS_OK ) {
-		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_parameter_set():\nparamater: n_connectivity_local"));
+		bft_error(__FILE__, __LINE__, damaris_err,_("ERROR: Damaris damaris_parameter_set():\n  parameter: n_connectivity_local"));
 	}
 
 
@@ -1078,6 +1377,8 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 				_("ERROR: Damaris damaris_write():\nVariable: umesh_vars/section_types" ));
 		}
 
+	// The section_sizes are equivalent to the number of elements per section, and thus equals the number of
+	// field values for a particular mesh section (for fields that are 'per element' AKA 'zonal'
 	damaris_err = damaris_set_position("umesh_vars/section_sizes" , &pos);
 	if (damaris_err != DAMARIS_OK )
 			bft_error(__FILE__, __LINE__, damaris_err, _("ERROR: Damaris damaris_set_position() umesh_vars/section_sizes"));
@@ -1112,6 +1413,9 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	BFT_FREE(vertices_rank_sizes);
 	BFT_FREE(connectivity_rank_offsets);
 	BFT_FREE(connectivity_rank_sizes);
+
+	BFT_FREE(elements_rank_offsets);
+	BFT_FREE(elements_rank_sizes);
 
 
 
@@ -1161,16 +1465,14 @@ fvm_to_damaris_export_field(void                  *this_writer_p,
                              double                 time_value,
                              const void      *const field_values[])
 {
-  int  mesh_id, field_id;
+
   char _name[128];
 
   fvm_to_damaris_writer_t *w = (fvm_to_damaris_writer_t *)this_writer_p;
 
   /* Initialization */
   /*----------------*/
-/*
-  mesh_id = _get_catalyst_mesh_id(w, mesh->name);
-*/
+
   strncpy(_name, name, 127);
   _name[127] = '\0';
   if (w->ensight_names) {
@@ -1214,31 +1516,10 @@ fvm_to_damaris_export_field(void                  *this_writer_p,
     w->time_step = _time_step;
     assert(time_value >= w->time_value);
     w->time_value = _time_value;
- /*   w->datadesc->SetTimeData(w->time_value, w->time_step);*/
   }
-
-  /* Get field id */
-  /*
-  field_id = _get_catalyst_field_id(w,
-                                    _name,
-                                    mesh_id,
-                                    dimension,
-                                    datatype,
-                                    location);
-
-  if (field_id < 0)
-    field_id = _add_catalyst_field(w,
-                                   _name,
-                                   mesh_id,
-                                   dimension,
-                                   datatype,
-                                   location);
-*/
-  /*vtkUnstructuredGrid  *f = w->fields[field_id]->f;*/
 
   /* Per node variable */
   /*-------------------*/
-
   if (location == FVM_WRITER_PER_NODE)
     /*_export_field_values_n(mesh,
                            _name,
@@ -1254,7 +1535,6 @@ fvm_to_damaris_export_field(void                  *this_writer_p,
 
   /* Per element variable */
   /*----------------------*/
-
   else if (location == FVM_WRITER_PER_ELEMENT)
     _export_field_values_e(mesh,
                            _name,
