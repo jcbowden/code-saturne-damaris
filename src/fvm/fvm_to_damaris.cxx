@@ -233,8 +233,8 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 
     // copy input fieldname to lower case
     int t1 = 0;
-    char fieldname_lwrcase[9];
-    while ( (t1<8)  && fieldname[t1])
+    char fieldname_lwrcase[12];
+    while ( (t1<11)  && fieldname[t1])
     {
     	fieldname_lwrcase[t1] = tolower(fieldname[t1]);
     	t1++;
@@ -283,7 +283,27 @@ _export_field_values_e(const fvm_nodal_t         *mesh,
 								   "field: \"%s\"."), "fields/velocity");
 		}
     }
-    //else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 8) == 0 )
+    else if ( strncmp( fieldname_lwrcase, "mpi_rank_id", 11) == 0 )
+    {
+		int64_t pos[1];
+
+		pos[0] = n_elements_offset + start_id;
+
+		damaris_err = damaris_set_position("fields/mpi_rank_id" , pos);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_set_position():\n"
+								   "field: \"%s\"."), "fields/mpi_rank_id");
+		}
+		damaris_err = damaris_write("fields/mpi_rank_id" ,field_values[0]);
+		//damaris_err = damaris_write("fields/pressure" ,mypressure);
+		if (damaris_err != DAMARIS_OK ) {
+			bft_error(__FILE__, __LINE__, damaris_err,
+								 _("ERROR: Damaris damaris_write():\n"
+								   "field: \"%s\"."), "fields/mpi_rank_id");
+		}
+
+	}
 
     start_id += section->n_elements*dest_dim;
     if (n_parent_lists == 0)
