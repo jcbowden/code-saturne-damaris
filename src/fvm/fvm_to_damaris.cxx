@@ -1265,7 +1265,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	BFT_MALLOC(elements_rank_sizes, cs_glob_n_ranks, unsigned long );
 	// This gets the n_connectivity of each rank, which is the size of the connectivity of all sections on the current rank
 	MPI_Allgather(&n_elements_local, 1, MPI_UNSIGNED_LONG, elements_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
-	connectivity_rank_offsets[0] = 0l ;
+	elements_rank_offsets[0] = 0l ;
 	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
 	{
 		elements_rank_offsets[t1] = elements_rank_offsets[t1-1] + elements_rank_sizes[t1-1];

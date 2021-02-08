@@ -126,6 +126,8 @@ _arg_env_help(const char  *name)
           "                   (usually automatic, only required for\n"
           "                   undetermined MPI libraries)\n"));
   fprintf
+      (e, _(" --omp X         use OpenMP with a set number of threads (X)\n"));
+  fprintf
     (e, _(" --trace           trace progress in standard output\n"));
   fprintf
     (e, _(" --logp            output redirection for ranks > 0\n"
@@ -255,6 +257,15 @@ cs_opts_define(int         argc,
 
     else if (strcmp(s, "--logp") == 0) {
       opts->logrp = true;
+    }
+
+
+    else if (strcmp(s, "--omp") == 0) {
+    	// should have a numeric value after --omp
+    	// so skip next argument
+    	// i.e. --omp 4
+    	arg_id++ ;
+      /* Handled in main() HAVE_OPENMP section */
     }
 
 #if defined(HAVE_MPI)

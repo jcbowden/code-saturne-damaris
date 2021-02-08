@@ -1020,7 +1020,8 @@ _cs_base_mpi_setup(const char *app_name)
 	if (cs_damaris_xml_file == NULL)
 		cs_damaris_xml_file = "code_saturne_damaris.xml";
 
-   bft_printf("\nDamaris library using input file: %s\n", cs_damaris_xml_file);
+   if (rank == 0)
+       bft_printf("\nDamaris library using input file: %s\n", cs_damaris_xml_file);
    damaris_err = damaris_initialize(cs_damaris_xml_file, MPI_COMM_WORLD);
    if (damaris_err != DAMARIS_OK ) {
 	   _cs_base_err_printf(_("\nDAMARIS error: damaris_initialize() failed\n"));

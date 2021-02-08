@@ -601,8 +601,8 @@ main(int    argc,
 
 
 #if defined(DEBUG)  /* Add so we can attach debugger in eclipse */
-  printf("About to call sleep(1)\n") ;
-  sleep(1) ;
+ // printf("About to call sleep(1)\n") ;
+ // sleep(1) ;
 #endif
 
   /* Initialize wall clock timer */
@@ -617,6 +617,29 @@ main(int    argc,
 
 #if defined(HAVE_OPENMP) /* Determine default number of OpenMP threads */
   {
+
+	  char *s;
+	  bool use_omp = false;
+	  int arg_id = 0;
+	  int arg_id_found = 0;
+	  int num_threads = 1 ;
+	   while (++arg_id < argc) {
+	       s = argv[arg_id];
+	       /* User defined number of threads run */
+	       if (strcmp(s, "--omp") == 0)
+	       {
+	         use_omp = true;
+	         arg_id_found = arg_id + 1;
+	       }
+	   } /* End of loop on command line arguments */
+
+	    if (use_omp == true){
+	    	if (arg_id_found < argc){
+	    		num_threads = atoi(argv[arg_id_found]);
+	    	}
+	    	omp_set_num_threads(num_threads);
+	    }
+
     int t_id;
 #pragma omp parallel private(t_id)
     {
