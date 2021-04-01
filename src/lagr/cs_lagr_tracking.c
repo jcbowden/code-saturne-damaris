@@ -1635,6 +1635,7 @@ _boundary_treatment(cs_lagr_particle_set_t    *particles,
       particle_velocity_seen[k] -= tmp * face_norm[k];
 
     event_flag = event_flag | CS_EVENT_REBOUND;
+
   }
 
   else if (b_type == CS_LAGR_FOULING) {
@@ -2907,23 +2908,6 @@ _initialize_displacement(cs_lagr_particle_set_t  *particles)
       if (r_num > 0) {
         _apply_vector_transfo((const cs_real_t (*)[4])rot_m[r_num],
                               _tracking_info(particles, i)->start_coords);
-      }
-    }
-
-    /* Just after injection, reduce displacment so as to simulate
-       continuous injection */
-
-    cs_real_t res_time = cs_lagr_particles_get_real(particles, i,
-                                                    CS_LAGR_RESIDENCE_TIME);
-
-    if (res_time < 0) {
-      cs_real_t fraction =   (cs_glob_lagr_time_step->dtp + res_time)
-                           / cs_glob_lagr_time_step->dtp;
-      cs_real_t *part_coord
-        = cs_lagr_particles_attr(particles, i, CS_LAGR_COORDS);
-      for (cs_lnum_t j = 0; j < 3; j++) {
-        cs_real_t d = part_coord[j] - prv_part_coord[j];
-        part_coord[j] = prv_part_coord[j] + fraction*d;
       }
     }
 

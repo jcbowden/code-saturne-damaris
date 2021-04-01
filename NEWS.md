@@ -1,7 +1,209 @@
-Master (not on release branches yet)
-------------------------------------
+Release 6.3.1 (Unreleased)
+--------------------------
+
+Bug fixes:
+
+- GUI: Fix crash encountered in GroundWaterLaw page
+
+- Compressible: fix imposed inlet/outlet boundary condition.
+  Boundary mass flux was not computed using the Rusanov scheme,
+  and was not consistant with momentum and energy convective fluxes on
+  the boundary faces with imposed inlet/outlet boundary condition.
+
+- Fix potential issue (compilation error) when generating user law
+  formulae for volume conditions.
+
+- Mesh joining: fix crash when number of joined faces is smaller
+  than the number of MPI ranks.
+
+- GUI: Fix behavior of Post-processing page when default meshes (cells or
+  boundary faces) are no longer associated to a writer and another mesh of the
+  same type is associated to a writer.
+
+- GUI: fix handling of `mod` operator in mathematical expressions
+  (convert it to `fmod`, not integer modulo operator).
+
+- Fix mapped inlet for turbulence.
+
+- GUI: Fix usage of formula for user scalar diffusivity.
+
+- GUI: fix incomplete handling of compressible boundary conditions
+  preventing run unless completed in user subroutines.
+
+- Ensure profiles are ordered by curvilinear coordinates in serial mode.
+
+- Scripts: fix MPMD (coupling) backup "script" launch mode.
+
+- GUI: Remove old placeholder for Lagrangian BC's, add missing Lagrangian
+  section in neptune_cfd BCs.
+
+- GUI: Fix input of head loss coefficients.
+
+- GUI: Fix handling of "New case" when case already loaded (GitLAb issue #250).
+
+- GUI: Fix C-syntax formula generation for source terms.
+
+Architectural changes:
+
+- Fix build without MPI.
+
+Release 6.3.0 (December 21 2020)
+--------------------------------
 
 User changes:
+
+- GUI: volume and boundary zones are now defined under the "Mesh"
+  section, so that their selection can be used in a consistent
+  manner in all following sections.
+  * some specific boundary conditions, such as those for the Lagrangian
+    model, are now grouped with standard zone boundary conditions rather
+    than appeating in a separate "Additional BC models" section.
+
+- Add `--dest` option to `code_saturne run` and `code_saturne submit`
+  commands. This allows specifying a top directory separate from the
+  one in which a case is present.
+
+- Change default options for the VOF model (convective scheme is now
+  CICSAM by default, with a continuous limiter ensuring
+  bounds).
+
+- Make dynamic relaxation option for pure diffusion equation default option.
+  (iswdyn = 2). This make the iterative process solving of the legacy
+  solver more robust (especially for pressure).
+
+- Add a `code_saturne parametric` command which currently allows the
+  modification of several parameters of a case and the creation of a
+  case  based on a reference case.
+  Integration with studymanager and cfdstudy (for parametric studies)
+  is to be added soon (before v7.0 release).
+
+- Preprocessing: added mesh modification flag types to more easily
+  activate re-partitioning.
+
+- LES inflow synthetic turbulence configuration is now zone-based, with
+  a new, more consistent user API.
+
+- Add `cs_runaway_check` functions to try to detect diverging computations
+  early enough for clean stop.
+  * Default check is on velocity > 1e4 for incompressible computations,
+    1e5 for compressible computations.
+
+- Add possibility to generate a cartesian mesh on the fly
+  * The GUI now allows to define a cartesian mesh which will be
+    generated during runtime.
+  * Needed parameters are minimal and maximal values for X,Y and Z
+    coordinates, and number of cells per direction.
+  * User can define the progression law for cells' size :
+    - Constant step
+    - Geometric step
+    - Parabolic step (Geometric step with a symmetry w.r.t center-coordinate
+      of the direction)
+  * The newly created mesh contains 6 groups for boundary faces: X0, X1, Y0,
+    Y1, Z0 and Z1 for the respectively the min and max coordinate of each
+    direction (X,Y and Z)
+
+- When creating a case with `code_saturne create`, the `--noref` option is
+  enabled by default. It can be cancelled using the `--copy-ref` option.
+
+- GUI: user source file editor can now also use reference files from the
+  installation directory.
+
+- code_saturne mesh format (.csm) is now treated in the same way as external
+  formats.
+  * Multiple meshes can be added in the "Mesh" page.
+  * Preprocessor (read operation) is not done for these mesh, though mesh
+    modification is.
+  * For back compatibility matters, '.csm' files can still be used as a
+    "mesh_input"
+
+- When no boundary condition is provided for some boundary faces, a default
+  (wall or symmetry) is used. This can be set using `cs_boundary_set_default`.
+
+- Modify the way the code is handling input file.
+  * If no xml file is provided by the 'run.cfg' file and a 'setup.xml' exists,
+    the latter is used (previous behaviour). If it does not exist, the
+    code prints a warning message indicating that no xml was found.
+  * If an input file, other than 'setup.xml', is provided using the 'run.cfg'
+    or '-p' option (for code_saturne run only), and a 'setup.xml' exists inside
+    the DATA folder, the provided input file is used. Before this change
+    'setup.xml' was the one used. A warning is printed to warn the user that
+    having the two is against code_saturne BPG.
+
+- Modify available C-API for usage of ParaMEDMEM coupling (MEDCoupling MPI).
+  Specific user functions are added (cs_user_paramedmem_coupling.c) to allow
+  an easier definitions of coupling. Examples are provided in the
+  'cs_user_paramedmem_coupling-base.c' user_example file.
+  Send/recieve operations still need to be done by the user, but are simplified
+  by allowing send/recv based on a cs_field_t pointer.
+
+- GUI: present volume and boundary conditions using sub-nodes in the
+  left-hand tree for the appropriate zones. This is a first step in
+  a change of zone setup presentation.
+
+Bug fixes:
+
+- GUI: Fix backward compatibility update function for NCFD v6.1 and later.
+
+Numerics and physical modelling:
+
+- CDO schemes: Add different strategies for the treatment of the advection term
+  in Navier-Stokes equations (linearized implicit and explicit treatment). The
+  Picard algorihtm (implicit) is the default as in the previous version. This is
+  based on results obtained during R. MILANI's PhD.
+
+- Amtospheric module: Major modification the scheme for Solar radiation based
+  on the PhD of L. Asmar.
+
+  In a previous version of the 1D solar radiation scheme of Code_Saturne, the
+  effect of aerosols has been introduced by making the approximation that
+  aerosols are purely diffusive. The same approximation was taken for
+  water vapor absorption in the UV-visible band (O3 band) but with
+  different optical properties.
+
+  In this new version, the aerosols are taken into account as absorbing
+  and diffusive particles characterized by their optical properties:
+  aerosol optical depth, single scattering albedo and asymmetry factor. To
+  do that, the adding method for multiple scattering has been added in the
+  UV-Visible band.
+
+  Other improvements have been made for:  the optical air mass, the
+  Rayleigh diffusion and the direct radiation estimation. In addition,
+  the absorption by minor gases has been introduced.
+
+- Remove "extrag" option for the pressure gradient, as its use was
+  limited to orthogonal meshes and was long superceded by the
+  `iphydr=1` option.
+
+Architectural changes:
+
+- For parallel IO, allow ranks stepping at the `cs_file` level so as to
+  allow using rank steps > 1 with all blocks, reducing the overhead
+  of using fewer and larger blocks.
+
+- In-situ postprocessing: add support for ParaView 5.9/Catalyst 2 pipelines.
+
+- Add AmgX library support for linear system resolution on NVIDIA GPU's.
+  * Associated matrices should be forced in CSR format.
+  * In parallel, Mesh renumbering should be set
+    to use `CS_RENUMBER_ADJACENT_LOW`.
+
+- Extend `cs_xdef_t` structure with definitions by DoF (degrees of freedom) for
+  advection fields, boundary and initial conditions (CDO schemes). This allow
+  one to add more generic/complex definitions at the user level or in existing
+  modules.
+
+Release 6.2.0 (August 27 2020)
+------------------------------
+
+User changes:
+
+- Volume mass injections can now be defined using zone and
+  equation parameter based cs_equation_add_volume_mass_injection_*
+  functions.
+  * Previous definitions remain compatible but are deprecated.
+  * Using the legacy mathod, if at least one zone is defined using
+    the `CS_VOLUME_ZONE_MASS_SOURCE_TERM` flag, these zones will be used
+    and the first 2 calls to cs_user_mass_source_terms are not needed.
 
 - Add possibility to edit coupling parameters in the GUI using an editor.
   * Editor can be launched from the GUI of any Code_Saturne coupled case
@@ -11,7 +213,7 @@ User changes:
     code_saturne [gui|cplgui] run.cfg
 
 - Thermal model:
-  * the iscacp(iscal) array is replaced by the field key-word "is_temperature".
+  * The iscacp(iscal) array is replaced by the field key-word "is_temperature".
     This allows using it also from C code.
 
 - Various improvments to CGNS output:
@@ -57,6 +259,14 @@ User changes:
     to an "advance" message to allow a finer control.
 
 Numerics and physical modelling:
+
+- Convection-diffusion multigrid: restore original aggregation criteria.
+  * This criteria seemed to strangely limit the grid hierarchy depth
+    on a provided test case, but seems to provide much better performance
+    on Rij-epsilon-EBRSM test cases during the initial iterations (with
+    no purely diffusive zone, but we assume a solver adapted to both
+    convection and diffusion should behave well in convective zones).
+  * This solver may now also be selected in the GUI for non-scalar variables.
 
 - Turbulence: remove the vortex method for LES.
 
@@ -127,6 +337,14 @@ Architectural changes:
 
 Bug fixes:
 
+- Fix convective outlet operator setting boundary coefficients for vectors
+  (with or without anisotropic diffusion) and tensors.
+
+- Major fix in hydrostatic pressure algorithm in the Rhie and Chow filter.
+  It only impact cases where external force is not colinear to boundary
+  faces where pressure Dirichlets are imposed (e.g. in atmospheric flows
+  at the top of the domain with automatic BCs).
+
 - Fix field output numbering on polyhedra or polygons when writer
   subdivision is activated in serial mode.
 
@@ -177,6 +395,12 @@ User changes:
 - Add the possibility to compute each term of the balance equations of
   the Reynolds tensor and/or the turbulent flux of an additional transported
   variable when performing an LES simulation.
+
+- Merge rough and smooth wall functions.
+  User setting of roughness is now using the dedicated fields
+  ("boundary_roughness" and "boundary_thermal_roughness").
+  Buoyancy modification for atmospheric flows (Louis) are also available for
+  dry and humid atmosphere for rough-smooth wall functions.
 
 Numerics and physical modelling:
 

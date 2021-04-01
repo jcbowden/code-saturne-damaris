@@ -88,12 +88,12 @@ implicit none
 ! Local variables
 
 logical(kind=c_bool) :: mesh_modified, log_active
+integer(c_int) :: ierr
 
 integer          modhis, iappel, iisuit
 integer          iel
 integer          inod   , idim, ifac
 integer          itrale , ntmsav
-integer          nent , nstruct, volmode
 integer          iterns
 integer          stats_id, restart_stats_id, lagr_stats_id, post_stats_id
 
@@ -102,11 +102,14 @@ double precision titer1, titer2
 integer          ivoid(1)
 double precision rvoid(1)
 
+logical          legacy_mass_st_zones
+
 double precision, save :: ttchis
 
 double precision, pointer, dimension(:)   :: dt => null()
 double precision, pointer, dimension(:)   :: porosi => null()
 double precision, pointer, dimension(:,:) :: disale => null()
+double precision, dimension(:,:), pointer :: xyzno0 => null()
 
 integer, allocatable, dimension(:,:) :: icodcl
 integer, allocatable, dimension(:) :: isostd
@@ -170,6 +173,14 @@ interface
 
   !=============================================================================
 
+  subroutine cs_les_inflow_initialize()  &
+    bind(C, name='cs_les_inflow_initialize')
+    use, intrinsic :: iso_c_binding
+    implicit none
+  end subroutine cs_les_inflow_initialize
+
+  !=============================================================================
+
   subroutine cs_meg_post_activate()  &
     bind(C, name='cs_meg_post_activate')
     use, intrinsic :: iso_c_binding
@@ -207,6 +218,41 @@ interface
     use, intrinsic :: iso_c_binding
     implicit none
   end subroutine cs_restart_lagrangian_checkpoint_write
+
+  !=============================================================================
+
+  subroutine cs_les_synthetic_eddy_restart_read()  &
+    bind(C, name='cs_les_synthetic_eddy_restart_read')
+    use, intrinsic :: iso_c_binding
+    implicit none
+  end subroutine cs_les_synthetic_eddy_restart_read
+
+  !=============================================================================
+
+  subroutine cs_les_synthetic_eddy_restart_write()  &
+    bind(C, name='cs_les_synthetic_eddy_restart_write')
+    use, intrinsic :: iso_c_binding
+    implicit none
+  end subroutine cs_les_synthetic_eddy_restart_write
+
+  !=============================================================================
+
+  subroutine cs_volume_mass_injection_build_lists(ncetsm, icetsm, izctsm) &
+    bind(C, name='cs_volume_mass_injection_build_lists')
+    use, intrinsic :: iso_c_binding
+    implicit none
+    integer(kind=c_int), value :: ncetsm
+    integer(kind=c_int), dimension(*), intent(out) :: icetsm, izctsm
+  end subroutine cs_volume_mass_injection_build_lists
+
+  !=============================================================================
+
+  function cs_runaway_check() result(ierr) &
+    bind(C, name='cs_runaway_check')
+    use, intrinsic :: iso_c_binding
+    implicit none
+    integer(c_int) :: ierr
+  end function cs_runaway_check
 
   !=============================================================================
 
@@ -254,6 +300,8 @@ call initi2
 
 ! First pass for every subroutine
 iappel = 1
+
+legacy_mass_st_zones = .false.
 
 ! Allocate temporary arrays for zones definition
 allocate(izctsm(ncel))
@@ -305,18 +353,25 @@ endif
 ! Mass source terms
 ! -----------------
 
-call cs_user_mass_source_terms &
-( nvar   , nscal  , ncepdc ,                                     &
-  ncetsm , iappel ,                                              &
-  ivoid  ,                                                       &
-  ivoid  , ivoid  , izctsm ,                                     &
-  rvoid  ,                                                       &
-  ckupdc , rvoid  )
-
 ! Total number of cells with mass source term
 nctsmt = ncetsm
 if (irangp.ge.0) then
   call parcpt(nctsmt)
+endif
+
+! If already defined through zones, do not use first (counting)
+! call for legacy user mass source terms.
+if (nctsmt.eq.0) then
+  call cs_user_mass_source_terms(nvar, nscal, ncepdc, ncetsm, 1,   &
+                                 ivoid, ivoid, ivoid, izctsm,      &
+                                 rvoid, ckupdc, rvoid )
+  nctsmt = ncetsm
+  if (irangp.ge.0) then
+    call parcpt(nctsmt)
+  endif
+  if (nctsmt.gt.0) then
+    legacy_mass_st_zones = .true.
+  endif
 endif
 
 if (nctsmt.gt.0) then
@@ -395,19 +450,11 @@ call init_aux_arrays(ncelet, nfabor)
 call turbomachinery_init
 
 if (ippmod(iatmos).ge.0) then
-
-  call init_meteo
-
-  if (imbrication_flag) then
-    call activate_imbrication
-  endif
-
-  call cs_at_data_assim_build_ops
+  call init_atmo_autom(nfabor)
 
   if (ifilechemistry.ge.1) then
-    call init_chemistry
+    call init_chemistry_reacnum
   endif
-
 endif
 
 if (ippmod(icompf).ge.0) then
@@ -423,7 +470,7 @@ if (ncpdct.gt.0) then
 endif
 
 if (nctsmt.gt.0) then
-  call init_tsma ( nvar )
+  call init_tsma (nvar)
 endif
 
 if (nftcdt.gt.0) then
@@ -561,8 +608,7 @@ if (nftcdt.gt.0) then
 
   ! the Condensation model coupled with a 0-D thermal model
   ! to take into account the metal mass structures effects.
-  if(itagms.eq.1) then
-
+  if (itagms.eq.1) then
     call init_tagms
   endif
 
@@ -572,10 +618,7 @@ endif
 ! Initialization for the Synthetic turbulence Inlets
 !===============================================================================
 
-nent = 0
-nstruct = 0
-volmode = 0
-call defsyn(nent,nstruct,volmode)
+call cs_les_inflow_initialize
 
 !===============================================================================
 ! Possible restart
@@ -598,6 +641,7 @@ if (isuite.eq.1) then
   if (iale.ge.1) then
 
     call field_get_val_v(fdiale, disale)
+    call field_get_val_v_by_name("vtx_coord0", xyzno0)
 
     do inod = 1, nnod
       do idim = 1, ndim
@@ -622,9 +666,7 @@ if (isuite.eq.1) then
     call cs_restart_lagrangian_checkpoint_read()
   endif
 
-  if (isuisy.eq.1) then
-    call lecsyn('les_inflow.csc'//c_null_char)
-  endif
+  call cs_les_synthetic_eddy_restart_read
 
   ! TODO
   ! cs_restart_map_free may not be called yet, because
@@ -727,24 +769,18 @@ if (ncpdct.gt.0) then
 
 endif
 
-! On appelle cs_user_mass_source_terms lorsqu'il y a sur un processeur au moins
-!     des cellules avec terme source de masse.
-!     On ne fait que remplir le tableau d'indirection des cellules
-!     On appelle cependant cs_user_mass_source_terms avec tous les processeurs,
-!     au cas ou l'utilisateur aurait mis en oeuvre des operations globales.
+! Build volume mass injection cell lists when present on at least one rank.
+! This is a collective call for consistency and in case the user requires it.
 
 if (nctsmt.gt.0) then
 
-  call volume_zone_select_type_cells(VOLUME_ZONE_MASS_SOURCE_TERM, icetsm)
-
-  iappel = 2
-  call cs_user_mass_source_terms &
-( nvar   , nscal  , ncepdc ,                                     &
-  ncetsm , iappel ,                                              &
-  icepdc ,                                                       &
-  icetsm , itypsm , izctsm ,                                     &
-  dt     ,                                                       &
-  ckupdc , smacel )
+  if (.not. legacy_mass_st_zones) then
+    call cs_volume_mass_injection_build_lists(ncetsm, icetsm, izctsm)
+  else
+    call cs_user_mass_source_terms(nvar, nscal, ncepdc, ncetsm, 2,   &
+                                   icepdc, icetsm, itypsm, izctsm,   &
+                                   dt, ckupdc, smacel)
+  endif
 
 endif
 
@@ -871,6 +907,9 @@ if (      (idtvar.eq.0 .or. idtvar.eq.1)                          &
   ntmabs = ntcabs
 endif
 
+! Check for runaway (diverging) computation
+ierr = cs_runaway_check()
+
 ! Set default logging (always log 10 first iterations and last one=)
 log_active = .false.
 if (ntcabs - ntpabs.le.10 .or. ntcabs.eq.ntmabs) then
@@ -938,7 +977,7 @@ endif
 if (iale.ge.1 .and. ntmabs.gt.ntpabs) then
 
   if (itrale.eq.0 .or. itrale.gt.nalinf) then
-    call cs_ale_update_mesh(itrale, xyzno0)
+    call cs_ale_update_mesh(itrale)
   endif
 
 endif
@@ -1011,9 +1050,7 @@ if (iisuit.eq.1) then
     call cs_1d_wall_thermal_write
   endif
 
-  if (nent.gt.0) then
-    call ecrsyn('les_inflow.csc'//c_null_char)
-  endif
+  call cs_les_synthetic_eddy_restart_write
 
   if (iilagr.gt.0) then
     call cs_restart_lagrangian_checkpoint_write()
@@ -1167,9 +1204,9 @@ call turbulence_model_free_bc_ids
 
 call finalize_aux_arrays
 
-if (ippmod(iatmos).ge.0) then
+call finalize_meteo
 
-  call finalize_meteo
+if (ippmod(iatmos).ge.0) then
 
   if(imbrication_flag)then
     call finalize_imbrication

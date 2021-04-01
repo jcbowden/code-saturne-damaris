@@ -116,7 +116,7 @@ class NewCaseDialogView(QDialog, Ui_NewCaseDialogForm):
     """
     Advanced dialog
     """
-    def __init__(self, parent, pkg):
+    def __init__(self, parent, pkg, path):
         """
         Constructor
         """
@@ -133,7 +133,7 @@ class NewCaseDialogView(QDialog, Ui_NewCaseDialogForm):
         self.copyFromName = None
         self.caseName = None
 
-        self.currentPath = str(QDir.currentPath())
+        self.currentPath = path
         self.model = QFileSystemModel(self)
         self.model.setRootPath(self.currentPath)
         self.model.setFilter(QDir.Dirs)
@@ -372,7 +372,8 @@ class MainView(object):
         self.fileCloseAction.triggered.connect(self.close)
         self.fileQuitAction.triggered.connect(self.fileQuit)
 
-        self.openTextEditorAction.triggered.connect(self.fileEditorOpen)
+        self.openDataEditorAction.triggered.connect(self.dataEditorOpen)
+        self.openSrcEditorAction.triggered.connect(self.fileEditorOpen)
         self.openResultsFileAction.triggered.connect(self.fileViewerOpen)
         self.testUserCompilationAction.triggered.connect(self.testUserFilesCompilation)
 
@@ -649,24 +650,18 @@ class MainView(object):
 
         create new Code_Saturne case
         """
-        if not hasattr(self, 'case') or not self.case['xmlfile']:
-            dialog = NewCaseDialogView(self, self.package)
-            if dialog.exec_():
-                self.case = QtCase.QtCase(package=self.package)
-                self.case.root()['version'] = self.XML_DOC_VERSION
-                self.initCase()
-                self.updateTitleBar()
-
-                self.Browser.configureTree(self.case)
-                self.dockWidgetBrowserDisplay(True)
-
-                self.case['salome'] = self.salome
-                self.scrollArea.setWidget(self.displayFirstPage())
-                self.case['saved'] = "yes"
-
-                self.case.undo_signal.connect(self.slotUndoRedoView)
-        else:
-            MainView(cmd_package=self.package, cmd_case="new case").show()
+        path = str(QDir.currentPath())
+        if hasattr(self, 'case') and self.case['xmlfile']:
+            path = os.path.dirname(self.case['xmlfile'])
+            path = os.path.split(path)[0]  # case directory
+            path = os.path.split(path)[0]  # parent directory
+        dialog = NewCaseDialogView(self, self.package, path)
+        if dialog.exec_():
+            if not hasattr(self, 'case'):
+                self.fileNew()
+            else:
+                new_view = MainView(cmd_package=self.package, cmd_case="setup.xml")
+                new_view.show()
 
 
     def fileAlreadyLoaded(self, f):
@@ -729,7 +724,6 @@ class MainView(object):
 
         if hasattr(self, 'case'):
             delattr(self, 'case')
-
 
     def loadFile(self, file_name=None):
         """
@@ -883,6 +877,40 @@ class MainView(object):
         self.statusbar.clearMessage()
 
 
+    def dataEditorOpen(self):
+        """
+        public
+        open a text file
+        """
+
+        from code_saturne.Base.QFileEditor import QFileEditor
+
+        # We do several checks:
+        # - Has a case structure been initialized ?
+        # - Does the xml file exists ?
+        # - Is the xml file within a DATA folder ?
+        #
+        # Only if all of these tests are passed do we open the file editor.
+        datadir = None
+        if hasattr(self, 'case'):
+            datadir = os.path.join(self.case['case_path'], 'DATA')
+
+        if not datadir:
+            title = self.tr("Warning")
+            msg   = self.tr("You can only manage data files inside a case directory.")
+            QMessageBox.warning(self, title, msg)
+            return
+
+        reference_dir = os.path.join(self.package.get_dir("pkgdatadir"),
+                                     'data',
+                                     'user')
+        fileEditor = QFileEditor(parent=self,
+                                 case_dir=datadir,
+                                 reference_dir=reference_dir,
+                                 noOpen=True)
+        fileEditor.show()
+
+
     def fileEditorOpen(self):
         """
         public
@@ -919,8 +947,10 @@ class MainView(object):
             QMessageBox.warning(self, title, msg)
             return
 
+        reference_dir = os.path.join(self.package.get_dir("pkgdatadir"), 'user_sources')
         fileEditor = QFileEditor(parent=self,
                                  case_dir=self.case['case_path']+'/SRC',
+                                 reference_dir=reference_dir,
                                  noOpen=True)
         fileEditor.show()
 
@@ -1129,9 +1159,6 @@ class MainView(object):
         self.updateTitleBar()
         self.case.xmlSaveDocument()
         self.jobFileSave()
-        meg_state = self.saveUserFormulaInC()
-        if meg_state == -1:
-            return
 
         # force to blank after save
         self.case['saved'] = 'yes'
@@ -1699,10 +1726,10 @@ class MainViewSaturne(QMainWindow, Ui_MainForm, MainView):
         self.case['current_tab'] = 0
         self.case['current_index'] = None
         return displaySelectedPage('Calculation environment',
-                                    self,
-                                    self.case,
-                                    stbar=self.statusbar,
-                                    tree=self.Browser)
+                                   self,
+                                   self.case,
+                                   stbar=self.statusbar,
+                                   tree=self.Browser)
 
 
     def displayCSManual(self):

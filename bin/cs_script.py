@@ -47,6 +47,7 @@ class master_script:
                          'smgrgui':self.studymanager_gui,
                          'trackcvg':self.trackcvg,
                          'info':self.info,
+                         'parametric':self.parametric,
                          'run':self.run,
                          'salome':self.salome,
                          'submit':self.submit,
@@ -112,6 +113,7 @@ Topics:
   cplgui
   create
   gui
+  parametric
   studymanagergui
   smgrgui
   trackcvg
@@ -151,6 +153,8 @@ Options:
         return cs_create.main(options, self.package)
 
     def gui(self, options = None):
+        if self.package.config.features["gui"] == "no":
+            raise Exception("This code_saturne build does not include the GUI.")
         from code_saturne import cs_gui
         return cs_gui.main(options, self.package)
 
@@ -165,6 +169,10 @@ Options:
     def info(self, options = None):
         from code_saturne import cs_info
         return cs_info.main(options, self.package)
+
+    def parametric(self, options = None):
+        from code_saturne import cs_parametric_study
+        return cs_parametric_study.main(options, self.package)
 
     def run(self, options = None):
         from code_saturne import cs_run

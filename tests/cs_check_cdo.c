@@ -104,7 +104,7 @@ _unity(cs_real_t         time,
        cs_lnum_t         n_pts,
        const cs_lnum_t  *pt_ids,
        const cs_real_t  *xyz,
-       bool              compact,
+       bool              dense_output,
        void             *input,
        cs_real_t         retval[])
 {
@@ -114,7 +114,7 @@ _unity(cs_real_t         time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? pt_ids[i] : i;
-    const cs_lnum_t  r = compact ? i : p;
+    const cs_lnum_t  r = dense_output ? i : p;
     retval[r] = 1.0;
   }
 }
@@ -127,7 +127,7 @@ _unity_vect(cs_real_t         time,
             cs_lnum_t         n_pts,
             const cs_lnum_t  *pt_ids,
             const cs_real_t  *xyz,
-            bool              compact,
+            bool              dense_output,
             void             *input,
             cs_real_t         retval[])
 {
@@ -137,7 +137,7 @@ _unity_vect(cs_real_t         time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? pt_ids[i] : i;
-    const cs_lnum_t  r = compact ? i : p;
+    const cs_lnum_t  r = dense_output ? i : p;
     for (int j = 0; j < 3; j++)
       retval[3*r+j] = 1.0;
   }
@@ -151,7 +151,7 @@ _linear_xyz(cs_real_t          time,
             cs_lnum_t          n_pts,
             const cs_lnum_t   *pt_ids,
             const cs_real_t   *xyz,
-            bool               compact,
+            bool               dense_output,
             void              *input,
             cs_real_t          retval[])
 {
@@ -160,7 +160,7 @@ _linear_xyz(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? pt_ids[i] : i;
-    const cs_lnum_t  r = compact ? i : p;
+    const cs_lnum_t  r = dense_output ? i : p;
     retval[r] = xyz[3*p] + xyz[3*p+1] + xyz[3*p+2];
   }
 }
@@ -173,7 +173,7 @@ _linear_xyz_vect(cs_real_t          time,
                  cs_lnum_t          n_pts,
                  const cs_lnum_t   *pt_ids,
                  const cs_real_t   *xyz,
-                 bool               compact,
+                 bool               dense_output,
                  void              *input,
                  cs_real_t          retval[])
 {
@@ -182,7 +182,7 @@ _linear_xyz_vect(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? 3*pt_ids[i] : 3*i;
-    const cs_lnum_t  r = compact ? 3*i : p;
+    const cs_lnum_t  r = dense_output ? 3*i : p;
     for (int j = 0; j < 3; j++)
       retval[r+j] = (j+1) * xyz[p+j];
   }
@@ -197,7 +197,7 @@ _quadratic_x2(cs_real_t          time,
               cs_lnum_t          n_pts,
               const cs_lnum_t   *pt_ids,
               const cs_real_t   *xyz,
-              bool               compact,
+              bool               dense_output,
               void              *input,
               cs_real_t          retval[])
 {
@@ -206,7 +206,7 @@ _quadratic_x2(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? pt_ids[i] : i;
-    const cs_lnum_t  r = compact ? i : p;
+    const cs_lnum_t  r = dense_output ? i : p;
     retval[r] = xyz[3*p]*xyz[3*p];
   }
 }
@@ -219,7 +219,7 @@ _quadratic_x2_vect(cs_real_t          time,
                    cs_lnum_t          n_pts,
                    const cs_lnum_t   *pt_ids,
                    const cs_real_t   *xyz,
-                   bool               compact,
+                   bool               dense_output,
                    void              *input,
                    cs_real_t          retval[])
 {
@@ -228,7 +228,7 @@ _quadratic_x2_vect(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? 3*pt_ids[i] : 3*i;
-    const cs_lnum_t  r = compact ? 3*i : p;
+    const cs_lnum_t  r = dense_output ? 3*i : p;
     const cs_real_t  x2 = xyz[p]*xyz[p];
     for (int j = 0; j < 3; j++)
       retval[r+j] = x2;
@@ -244,7 +244,7 @@ _quadratic_xyz2(cs_real_t          time,
                 cs_lnum_t          n_pts,
                 const cs_lnum_t   *pt_ids,
                 const cs_real_t   *xyz,
-                bool               compact,
+                bool               dense_output,
                 void              *input,
                 cs_real_t          retval[])
 {
@@ -253,7 +253,7 @@ _quadratic_xyz2(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? pt_ids[i] : i;
-    const cs_lnum_t  r = compact ? i : p;
+    const cs_lnum_t  r = dense_output ? i : p;
     retval[r] = cs_math_3_square_norm(xyz + 3*p);
   }
 
@@ -268,7 +268,7 @@ _cubic_xyz3_vect(cs_real_t          time,
                  cs_lnum_t          n_pts,
                  const cs_lnum_t   *pt_ids,
                  const cs_real_t   *xyz,
-                 bool               compact,
+                 bool               dense_output,
                  void              *input,
                  cs_real_t          retval[])
 {
@@ -277,7 +277,7 @@ _cubic_xyz3_vect(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? 3*pt_ids[i] : 3*i;
-    const cs_lnum_t  r = compact ? 3*i : p;
+    const cs_lnum_t  r = dense_output ? 3*i : p;
     for (short int j = 0; j < 3; j++)
       retval[r+j] = cs_math_pow3(xyz[p+j]);
   }
@@ -292,7 +292,7 @@ _nonpoly_vect(cs_real_t          time,
               cs_lnum_t          n_pts,
               const cs_lnum_t   *pt_ids,
               const cs_real_t   *xyz,
-              bool               compact,
+              bool               dense_output,
               void              *input,
               cs_real_t          retval[])
 {
@@ -301,7 +301,7 @@ _nonpoly_vect(cs_real_t          time,
 
   for (cs_lnum_t i = 0; i < n_pts; i++) {
     const cs_lnum_t  p = (pt_ids != NULL) ? 3*pt_ids[i] : 3*i;
-    const cs_lnum_t  r = compact ? 3*i : p;
+    const cs_lnum_t  r = dense_output ? 3*i : p;
     const cs_real_t  eval = exp(xyz[p]+xyz[p+1]+xyz[p+2]-1.5);
     for (int j = 0; j < 3; j++)
       retval[r+j] = eval;
@@ -1647,29 +1647,32 @@ _test_hho_schemes(FILE                *out,
     cs_sdm_block_fprintf(out, NULL, 1e-15, hhob->jstab);
 
     {
-      cs_xdef_analytic_input_t  anai = {.func = _unity, .input = NULL };
+      cs_xdef_analytic_context_t  ac = { .z_id = 0,
+                                         .func = _unity,
+                                         .input = NULL,
+                                         .free_input = NULL };
       cs_xdef_t  *uni = cs_xdef_volume_create(CS_XDEF_BY_ANALYTIC_FUNCTION,
                                               1,
                                               0, /* z_id */
                                               0, /* state flag */
                                               0, /* meta flag */
-                                              &anai);
+                                              &ac);
 
-      anai.func = _linear_xyz;
+      ac.func = _linear_xyz;
       cs_xdef_t  *lin = cs_xdef_volume_create(CS_XDEF_BY_ANALYTIC_FUNCTION,
                                               1,
                                               0, /* z_id */
                                               0, /* state flag */
                                               0, /* meta flag */
-                                              &anai);
+                                              &ac);
 
-      anai.func = _quadratic_x2;
+      ac.func = _quadratic_x2;
       cs_xdef_t  *x2 = cs_xdef_volume_create(CS_XDEF_BY_ANALYTIC_FUNCTION,
                                              1,
                                              0, /* z_id */
                                              0, /* state flag */
                                              0, /* meta flag */
-                                             &anai);
+                                             &ac);
 
       cs_real_t  reduction_uni[22], reduction_xyz[22], reduction_x2[22];
       for (int i = 0; i < 3*cm->n_fc+4; i++)
@@ -1956,10 +1959,13 @@ _test_divergence(FILE                     *out,
   memset(red, 0, totdof*sizeof(cs_real_t));
 
   { /* Constant */
-    cs_xdef_analytic_input_t  anai = {.func = _unity_vect, .input = NULL };
+    cs_xdef_analytic_context_t  ac = {.z_id = 0,
+                                      .func = _unity_vect,
+                                      .input = NULL,
+                                      .free_input = NULL };
 
     cs_xdef_cw_eval_vect_avg_reduction_by_analytic(cm, time_step->t_cur,
-                                                   (void*)(&anai),
+                                                   (void*)(&ac),
                                                    CS_QUADRATURE_HIGHEST, red);
 
     fprintf(out, "\n CDO.FB; DIVERGENCE; P0; |ERR(Div_c)| = %10.6e\n",
@@ -1967,16 +1973,19 @@ _test_divergence(FILE                     *out,
   }
 
   { /* Linear */
-    cs_xdef_analytic_input_t  anai = {.func = _linear_xyz_vect, .input = NULL };
+    cs_xdef_analytic_context_t  ac = {.z_id = 0,
+                                      .func = _linear_xyz_vect,
+                                      .input = NULL,
+                                      .free_input = NULL };
     cs_real_t  ex_div = 0.0;
 
     cs_xdef_cw_eval_c_int_by_analytic(cm, time_step->t_cur,
-                                         _unity, NULL,
-                                         cs_quadrature_tet_1pt_scal,
-                                         &ex_div);
+                                      _unity, NULL,
+                                      cs_quadrature_tet_1pt_scal,
+                                      &ex_div);
     ex_div *= 6. * ov;
     cs_xdef_cw_eval_vect_avg_reduction_by_analytic(cm, time_step->t_cur,
-                                                   (void*)(&anai),
+                                                   (void*)(&ac),
                                                    CS_QUADRATURE_HIGHEST, red);
 
     fprintf(out, " CDO.FB; DIVERGENCE; P1; |ERR(Div_c)| = %10.6e\n",
@@ -1984,17 +1993,19 @@ _test_divergence(FILE                     *out,
   }
 
   { /* Quadratic */
-    cs_xdef_analytic_input_t  anai = {.func = _quadratic_x2_vect,
-                                      .input = NULL };
+    cs_xdef_analytic_context_t  ac = {.z_id = 0,
+                                      .func = _quadratic_x2_vect,
+                                      .input = NULL,
+                                      .free_input = NULL };
     cs_real_t ex_div = 0.0;
 
     cs_xdef_cw_eval_c_int_by_analytic(cm, time_step->t_cur,
-                                         _linear_xyz, NULL,
-                                         cs_quadrature_tet_5pts_scal,
-                                         &ex_div);
+                                      _linear_xyz, NULL,
+                                      cs_quadrature_tet_5pts_scal,
+                                      &ex_div);
     ex_div *= 2. *ov;
     cs_xdef_cw_eval_vect_avg_reduction_by_analytic(cm, time_step->t_cur,
-                                                   (void*)(&anai),
+                                                   (void*)(&ac),
                                                    CS_QUADRATURE_HIGHEST, red);
 
     fprintf(out, " CDO.FB; DIVERGENCE; P2; |ERR(Div_c)| = %10.6e\n",
@@ -2002,15 +2013,18 @@ _test_divergence(FILE                     *out,
   }
 
   { /* Cubic */
-    cs_xdef_analytic_input_t  anai = {.func = _cubic_xyz3_vect, .input = NULL };
+    cs_xdef_analytic_context_t  ac = {.z_id = 0,
+                                      .func = _cubic_xyz3_vect,
+                                      .input = NULL,
+                                      .free_input = NULL };
     cs_real_t ex_div = 0.0;
 
     cs_xdef_cw_eval_c_int_by_analytic(cm, time_step->t_cur,
-                                         _quadratic_xyz2, NULL,
-                                         cs_quadrature_tet_5pts_scal, &ex_div);
+                                      _quadratic_xyz2, NULL,
+                                      cs_quadrature_tet_5pts_scal, &ex_div);
     ex_div *= 3. * ov;
     cs_xdef_cw_eval_vect_avg_reduction_by_analytic(cm, time_step->t_cur,
-                                                   (void*)(&anai),
+                                                   (void*)(&ac),
                                                    CS_QUADRATURE_HIGHEST, red);
 
     fprintf(out, " CDO.FB; DIVERGENCE; P3; |ERR(Div_c)| = %10.6e\n",
@@ -2018,11 +2032,14 @@ _test_divergence(FILE                     *out,
   }
 
   { /* Non pol */
-    cs_xdef_analytic_input_t  anai = {.func = _nonpoly_vect, .input = NULL };
+    cs_xdef_analytic_context_t  ac = {.z_id = 0,
+                                      .func = _nonpoly_vect,
+                                      .input = NULL,
+                                      .free_input = NULL };
 
     memset(red, 0, totdof*sizeof(cs_real_t));
     cs_xdef_cw_eval_vect_avg_reduction_by_analytic(cm, time_step->t_cur,
-                                                   (void*)(&anai),
+                                                   (void*)(&ac),
                                                    CS_QUADRATURE_HIGHEST, red);
 
     const short int  type = (cm->type == FVM_CELL_TETRA);

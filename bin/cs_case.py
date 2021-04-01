@@ -35,7 +35,7 @@ import platform
 import sys
 import stat
 
-from code_saturne import cs_exec_environment
+from code_saturne import cs_exec_environment, cs_run_conf
 
 from code_saturne.cs_case_domain import *
 
@@ -65,6 +65,35 @@ def check_exec_dir_stamp(d):
             retval = d
 
     return retval
+
+#-------------------------------------------------------------------------------
+# Check if an execution directory is inside a standard case structure
+#
+# This may not be the case if a separate staging directory or destination
+# directory has been specified.
+#-------------------------------------------------------------------------------
+
+def is_exec_dir_in_case(case_dir, exec_dir):
+    """
+    Check if an execution directory is inside a standard case structure.
+    """
+
+    in_case = False
+
+    if case_dir and exec_dir:
+        r_case_dir = os.path.normpath(case_dir)
+        r_exec_dir = os.path.normpath(exec_dir)
+        if not os.path.isabs(r_case_dir):
+            r_case_dir = os.path.abspath(r_case_dir)
+        if not os.path.isabs(r_exec_dir):
+            r_exec_dir = os.path.abspath(r_exec_dir)
+        if r_exec_dir.find(r_case_dir) == 0:
+            exec_parent_dir = os.path.split(r_exec_dir)[0]
+            if os.path.basename(exec_parent_dir) in ('RESU', 'RESU_COUPLING'):
+                if os.path.split(exec_parent_dir)[0] == case_dir:
+                    in_case = True
+
+    return in_case
 
 #-------------------------------------------------------------------------------
 
@@ -166,6 +195,7 @@ class case:
                  package,                     # main package
                  package_compute = None,      # package for compute environment
                  case_dir = None,
+                 dest_dir = None,
                  staging_dir = None,
                  domains = None,
                  syr_domains = None,
@@ -231,7 +261,12 @@ class case:
         # associate case domains and set case directory
 
         self.case_dir = case_dir
+        self.dest_dir = dest_dir
+        self.__define_dest_dir__()
+
         self.result_dir = None
+
+        # Determine parent (or coupling group) study directory
 
         if (os.path.isdir(os.path.join(case_dir, 'DATA')) and n_domains == 1):
             # Simple domain case from standard directory structure
@@ -253,8 +288,7 @@ class case:
 
         n_nc_solver = 0
 
-        for d in ( self.domains + self.syr_domains \
-                 + self.py_domains ):
+        for d in (self.domains + self.syr_domains + self.py_domains):
             d.set_case_dir(self.case_dir, staging_dir)
             try:
                 solver_name = os.path.basename(d.solver_path)
@@ -306,6 +340,16 @@ class case:
         # Error reporting
         self.error = ''
         self.error_long = ''
+
+    #---------------------------------------------------------------------------
+
+    def __define_dest_dir__(self):
+
+        if self.dest_dir != None:
+            if not os.path.isabs(self.dest_dir):
+                dest_dir = os.path.join(os.path.split(self.case_dir)[0],
+                                        self.dest_dir)
+                self.dest_dir = os.path.abspath(dest_dir)
 
     #---------------------------------------------------------------------------
 
@@ -512,11 +556,9 @@ class case:
             exec_dir_name += '.' + self.run_id
             self.exec_dir = os.path.join(self.exec_prefix, exec_dir_name)
         else:
-            r = os.path.join(self.case_dir, 'RESU')
-            if len(self.domains) + len(self.syr_domains) \
-             + len(self.py_domains) > 1:
-                r += '_COUPLING'
-            self.exec_dir = os.path.join(r, self.run_id)
+            if not self.result_dir:
+                self.define_result_dir()
+            self.exec_dir = self.result_dir
 
     #---------------------------------------------------------------------------
 
@@ -551,22 +593,23 @@ class case:
 
     def define_result_dir(self):
 
-        r = os.path.join(self.case_dir, 'RESU')
+        if self.dest_dir != None:
+            base_dir = os.path.join(self.dest_dir,
+                                    os.path.basename(self.case_dir))
+        else:
+            base_dir = self.case_dir
+
+        r = os.path.join(base_dir, 'RESU')
 
         # Coupled case
         if len(self.domains) + len(self.syr_domains) \
          + len(self.py_domains) > 1:
             r += '_COUPLING'
 
-        if os.path.isdir(r):
-            self.result_dir = os.path.join(r, self.run_id)
-        else:
-            r = os.path.join(self.case_dir, 'RESU')
-            err_str = \
-                    '\nResults directory: ' + r + '\n' \
-                    + 'does not exist.\n' \
-                    + 'Calculation will not be run.\n'
-            raise RunCaseError(err_str)
+        if not os.path.isdir(r):
+            os.makedirs(r)
+
+        self.result_dir = os.path.join(r, self.run_id)
 
     #---------------------------------------------------------------------------
 
@@ -598,11 +641,6 @@ class case:
 
         s_path = os.path.join(self.exec_dir, 'summary')
         s = open(s_path, 'w')
-
-        preprocessor = self.package.get_preprocessor()
-        solver = os.path.join(self.exec_dir, self.package.solver)
-        if not os.path.isfile(solver):
-            solver = self.package.get_solver()
 
         r = exec_env.resources
 
@@ -724,7 +762,7 @@ class case:
         # Copy single file
 
         dest = os.path.join(self.result_dir, os.path.basename(src))
-        if os.path.isfile(src) and src != dest:
+        if os.path.isfile(src) and os.path.abspath(src) != os.path.abspath(dest):
             shutil.copy2(src, dest)
 
     #---------------------------------------------------------------------------
@@ -880,7 +918,7 @@ class case:
                 + ' to the executable files.\n\n')
 
         e.write('MPI_RANK=`'
-                + self.package.pkgdatadir_script('runcase_mpi_rank')
+                + self.package.get_pkgdatadir_script('runcase_mpi_rank')
                 + ' $@`\n')
 
         app_id = 0
@@ -952,9 +990,11 @@ class case:
         mpi_cmd_exe = ''
         mpi_cmd_args = ''
 
-        if (n_procs > 1 and mpi_env.mpiexec != None) or \
-           (os.path.basename(mpi_env.mpiexec)[:4] == 'srun'):
-            mpi_cmd = mpi_env.mpiexec
+        if mpi_env.mpiexec != None:
+            if (n_procs > 1 or os.path.basename(mpi_env.mpiexec)[:4] == 'srun'):
+                mpi_cmd = mpi_env.mpiexec
+
+        if mpi_cmd:
             if mpi_env.mpiexec_opts != None:
                 mpi_cmd += ' ' + mpi_env.mpiexec_opts
             if mpiexec_mpmd == False:
@@ -1072,24 +1112,39 @@ class case:
             cs_exec_environment.write_prepend_path(s,
                                                    'LD_LIBRARY_PATH',
                                                    mpi_libdir)
+        s.write('\n')
 
         # HANDLE CATHARE COUPLING
+        wrote_cathare_path = False
         if self.domains:
             for d in self.domains:
                 if hasattr(d, "cathare_case_file"):
-                    config = configparser.ConfigParser()
-                    config.read(self.package.get_configfiles())
-                    cathare_path = config.get('install', 'cathare')
-                    for p in ['lib', 'ICoCo/lib']:
-                        lp = os.path.join(cathare_path, p)
-                        cs_exec_environment.write_prepend_path(s,
-                                                               "LD_LIBRARY_PATH",
-                                                               lp)
+                    if not wrote_cathare_path:
+                        cs_exec_environment.write_script_comment(s, \
+                            'Export paths necessary for CATHARE coupling.\n')
+                        config = configparser.ConfigParser()
+                        config.read(self.package.get_configfiles())
+                        cathare_path = config.get('install', 'cathare')
+                        for p in ['lib', 'ICoCo/lib']:
+                            lp = os.path.join(cathare_path, p)
+                            cs_exec_environment.write_prepend_path( \
+                                    s, "LD_LIBRARY_PATH", lp)
+
+                        wrote_cathare_path = True
+                        s.write('\n')
 
         # Handle python coupling
         if self.py_domains:
+            cs_exec_environment.write_script_comment(s, \
+                'Export paths necessary for python coupling.\n')
             pydir = self.package_compute.get_dir("pythondir")
             cs_exec_environment.write_prepend_path(s, "PYTHONPATH", pydir)
+            # This export is necessary fr PyPLE to work correctly
+            libdir = self.package_compute.get_dir("libdir")
+            cs_exec_environment.write_prepend_path(s,
+                                                   "LD_LIBRARY_PATH",
+                                                   libdir)
+            s.write('\n')
 
         # Handle environment modules if used
 
@@ -1397,6 +1452,14 @@ class case:
             if len(d.error) > 0:
                 self.error = d.error
 
+        # Set run_id in run.cfg as a precaution
+
+        run_conf_path = os.path.join(self.result_dir, "run.cfg")
+        if os.path.isfile(run_conf_path):
+            run_conf = cs_run_conf.run_conf(run_conf_path, package=self.package)
+            run_conf.set('run', 'id', str(self.run_id))
+            run_conf.save()
+
         # Rename temporary file to indicate new status
 
         if len(self.error) == 0:
@@ -1560,6 +1623,12 @@ class case:
             return 0
 
         os.chdir(self.exec_dir)
+
+        # In case LMOD is present, avoid warnings on macros
+        # for called scripts.
+        for ev in ('BASH_FUNC_module%%', 'BASH_FUNC_ml%%'):
+            if ev in os.environ:
+                del os.environ[ev]
 
         # Indicate status using temporary file for SALOME.
 
@@ -1726,6 +1795,23 @@ class case:
                       'run_solver':True,
                       'save_results':True}
 
+        # If preparation stage is not requested, it must have been done
+        # previously, and the id must be forced.
+
+        if not stages['prepare_data']:
+            force_id = True
+
+        # Run id and associated directories
+
+        self.set_run_id(run_id)
+        self.set_result_dir(force_id)
+
+        # If preparation stage is missing, force it
+        if stages['initialize'] and not stages['prepare_data']:
+            self.define_exec_dir()
+            if not os.path.isdir(self.exec_dir):
+                stages['prepare_data'] = True
+
         # Define scratch directory
         # priority: argument, environment variable, preference setting.
 
@@ -1746,7 +1832,7 @@ class case:
             if config.has_option('run', 'scratchdir'):
                 scratchdir = os.path.expanduser(config.get('run', 'scratchdir'))
                 scratchdir = os.path.realpath(os.path.expandvars(scratchdir))
-                if os.path.realpath(self.case_dir).find(scratchdir) == 0:
+                if os.path.realpath(self.result_dir).find(scratchdir) == 0:
                     scratchdir = None
 
         if scratchdir != None:
@@ -1757,26 +1843,6 @@ class case:
 
         if mpiexec_options == None:
             mpiexec_options = os.getenv('CS_MPIEXEC_OPTIONS')
-
-        # If preparation stage is not requested, it must have been done
-        # previously, and the id must be forced.
-
-        if not stages['prepare_data']:
-            force_id = True
-
-        # Run id and associated directories
-
-        self.set_run_id(run_id)
-
-        # If preparation stage is missing, force it
-        if stages['initialize'] and not stages['prepare_data']:
-            self.define_exec_dir()
-            if not os.path.isdir(self.exec_dir):
-                stages['prepare_data'] = True
-
-        # Set result copy mode
-
-        self.set_result_dir(force_id)
 
         # Set working directory
         # (nonlocal filesystem, reachable by all the processes)
@@ -1894,7 +1960,13 @@ class case:
         now = datetime.datetime.now()
         run_id_base = now.strftime('%Y%m%d-%H%M')
 
-        r = os.path.join(self.case_dir, 'RESU')
+        if self.dest_dir != None:
+            base_dir = os.path.join(self.dest_dir,
+                                    os.path.basename(self.case_dir))
+        else:
+            base_dir = self.case_dir
+
+        r = os.path.join(base_dir, 'RESU')
 
         if len(self.domains) + len(self.syr_domains) \
          + len(self.py_domains) > 1:
@@ -1923,7 +1995,7 @@ class case:
             if run_id_prefix:
                 run_id = run_id_prefix + run_id
             if run_id_suffix:
-                run_id = run_id_suffix + run_id
+                run_id = run_id + run_id_suffix
 
             result_dir = os.path.join(r, run_id)
 

@@ -1296,7 +1296,7 @@ cs_lagr_injection_set_default(cs_lagr_injection_set_t  *zis)
 
   /* For spheroids without inertia  */
   /* Default shape: sphere */
-  zis->shape = 0.;
+  zis->shape = CS_LAGR_SHAPE_SPHERE_MODEL;
 
   /* Angular velocity */
   for (int i = 0; i < 3; i++)
@@ -1408,7 +1408,8 @@ cs_lagr_update_particle_counter(void)
  *
  * \return
  *   pointer to lagrangian specific physics options
- *----------------------------------------------------------------------------*/
+ */
+/*----------------------------------------------------------------------------*/
 
 cs_lagr_specific_physics_t *
 cs_get_lagr_specific_physics(void)
@@ -1421,7 +1422,8 @@ cs_get_lagr_specific_physics(void)
  *
  * \return
  *   pointer to lagrangian reentrained model options
- *----------------------------------------------------------------------------*/
+ */
+/*----------------------------------------------------------------------------*/
 
 cs_lagr_reentrained_model_t *
 cs_get_lagr_reentrained_model(void)
@@ -1432,9 +1434,9 @@ cs_get_lagr_reentrained_model(void)
 /*----------------------------------------------------------------------------*/
 /*! \brief Provide access to cs_lagr_precipitation_model_t
  *
- * \return
- *   pointer to lagrangian precipitation model options
- *----------------------------------------------------------------------------*/
+ * \return  pointer to lagrangian precipitation model options
+ */
+/*----------------------------------------------------------------------------*/
 
 cs_lagr_precipitation_model_t *
 cs_get_lagr_precipitation_model(void)
@@ -1719,8 +1721,8 @@ cs_lagr_solve_initialize(const cs_real_t  *dt)
   cs_lnum_t ncelet = cs_glob_mesh->n_cells_with_ghosts;
 
   BFT_MALLOC(extra->grad_pr, ncelet, cs_real_3_t);
-  if (cs_glob_lagr_model->modcpl > 0
-      || cs_glob_lagr_model->shape > 0 )
+  if (   cs_glob_lagr_model->modcpl > 0
+      || cs_glob_lagr_model->shape > 0)
     BFT_MALLOC(extra->grad_vel, ncelet, cs_real_33_t);
 
   /* For frozen field:
@@ -2030,7 +2032,7 @@ cs_lagr_solve_time_step(const int         itypfb[],
   /* Initialization for the nonsphere model
      ------------------------------------- */
 
-  if (lagr_model->shape == 1)
+  if (lagr_model->shape == CS_LAGR_SHAPE_SPHEROID_STOC_MODEL)
     cs_glob_lagr_shape_model->param_chmb = 1.0;
 
   /* Update for new particles which entered the domain
@@ -2233,13 +2235,13 @@ cs_lagr_solve_time_step(const int         itypfb[],
                   &nresnew);
 
       /* Integration of SDEs for orientation of spheroids without inertia */
-      if (lagr_model->shape == 1) {
+      if (lagr_model->shape == CS_LAGR_SHAPE_SPHEROID_STOC_MODEL) {
         cs_lagr_orientation_dyn_spheroids(iprev,
                                           cs_glob_lagr_time_step->dtp,
                                           (const cs_real_33_t *)extra->grad_vel);
       }
       /* Integration of Jeffrey equations for ellispoids */
-      else if (lagr_model->shape == 2) {
+      else if (lagr_model->shape == CS_LAGR_SHAPE_SPHEROID_JEFFERY_MODEL) {
         cs_lagr_orientation_dyn_jeffery(cs_glob_lagr_time_step->dtp,
                                         (const cs_real_33_t *)extra->grad_vel);
       }

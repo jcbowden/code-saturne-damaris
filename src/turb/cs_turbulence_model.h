@@ -75,10 +75,12 @@ typedef enum {
  *----------------------------------------------------------------------------*/
 
 enum {
+
   CS_TURB_TYPE_NONE = 0,
   CS_TURB_RANS = 1,
   CS_TURB_LES = 2,
   CS_TURB_HYBRID = 3
+
 };
 
 /*----------------------------------------------------------------------------
@@ -86,9 +88,11 @@ enum {
  *----------------------------------------------------------------------------*/
 
 enum {
+
   CS_TURB_ALGEBRAIC = 0,
   CS_TURB_FIRST_ORDER = 1,
   CS_TURB_SECOND_ORDER = 2
+
 };
 
 /*----------------------------------------------------------------------------
@@ -96,10 +100,12 @@ enum {
  *----------------------------------------------------------------------------*/
 
 enum {
+
   CS_HYBRID_NONE = 0,
   CS_HYBRID_DES  = 1,
   CS_HYBRID_DDES = 2,
   CS_HYBRID_SAS  = 3
+
 };
 
 /* turbulence model general options descriptor */
@@ -154,9 +160,11 @@ typedef struct {
 /*------------------------------------------------------------------*/
 
 typedef struct {
+
   double        almax;        /* characteristic macroscopic length of the
                                  domain */
   double        uref;         /* characteristic flow velocity */
+
 } cs_turb_ref_values_t;
 
 /* RANS turbulence model descriptor */
@@ -272,11 +280,9 @@ extern const double cs_turb_bpow;
 extern double cs_turb_dpow;
 extern double cs_turb_cmu;
 extern double cs_turb_cmu025;
-extern const double cs_turb_ce1;
-extern const double cs_turb_ce2;
-extern const double cs_turb_ce4;
-extern const double cs_turb_sigmak;
-extern double cs_turb_sigmae;
+extern double cs_turb_ce1;
+extern double cs_turb_ce2;
+extern double cs_turb_ce4;
 extern double cs_turb_crij1;
 extern double cs_turb_crij2;
 extern double cs_turb_crij3;
@@ -304,7 +310,6 @@ extern const double cs_turb_cpale1;
 extern const double cs_turb_cpale2;
 extern const double cs_turb_cpale3;
 extern const double cs_turb_cpale4;
-extern const double cs_turb_cpalse;
 extern const double cs_turb_cpalmu;
 extern const double cs_turb_cpalc1;
 extern const double cs_turb_cpalc2;
@@ -457,7 +462,8 @@ cs_turb_constants_log_setup(void);
  *----------------------------------------------------------------------------*/
 
 void
-cs_clip_turbulent_fluxes(int flux_id, int ivartt);
+cs_clip_turbulent_fluxes(int  flux_id,
+                         int  ivartt);
 
 /*----------------------------------------------------------------------------*/
 

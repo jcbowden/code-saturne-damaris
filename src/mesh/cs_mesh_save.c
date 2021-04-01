@@ -58,6 +58,7 @@
 #include "cs_mesh.h"
 #include "cs_mesh_builder.h"
 #include "cs_mesh_to_builder.h"
+#include "cs_parall.h"
 #include "cs_part_to_block.h"
 
 /*----------------------------------------------------------------------------
@@ -118,7 +119,8 @@ cs_mesh_save(cs_mesh_t          *mesh,
              const char         *filename)
 {
   cs_file_access_t  method;
-  int  block_rank_step = 1, block_min_size = 0;
+  int  block_rank_step = 1;
+  size_t block_min_size = 0;
   long  echo = CS_IO_ECHO_OPEN_CLOSE;
 
   cs_io_t  *pp_out = NULL;
@@ -132,8 +134,10 @@ cs_mesh_save(cs_mesh_t          *mesh,
   MPI_Info  hints;
   MPI_Comm  block_comm, comm;
 
-  cs_file_get_default_comm(&block_rank_step, &block_min_size,
+  cs_file_get_default_comm(&block_rank_step,
                            &block_comm, &comm);
+  block_min_size = cs_parall_get_min_coll_buf_size();
+
 
   assert(comm == cs_glob_mpi_comm || comm == MPI_COMM_NULL);
 
@@ -170,9 +174,17 @@ cs_mesh_save(cs_mesh_t          *mesh,
     ldir = strlen(path);
 
   if (ldir > 0) {
-    if (cs_file_mkdir_default(path) != 0)
-      bft_error(__FILE__, __LINE__, 0,
-                _("The %s directory cannot be created"), path);
+
+    if (cs_glob_rank_id < 1) {
+      if (cs_file_mkdir_default(path) != 0)
+        bft_error(__FILE__, __LINE__, 0,
+                  _("The %s directory cannot be created"), path);
+    }
+
+#if defined(HAVE_MPI)
+    if (cs_glob_n_ranks > 1)
+      MPI_Barrier(cs_glob_mpi_comm);
+#endif
 
     BFT_MALLOC(_name, ldir + lname + 2, char);
     sprintf(_name, "%s%c%s",

@@ -44,7 +44,6 @@
 #include "cs_matrix_building.h"
 #include "cs_matrix_default.h"
 #include "cs_matrix.h"
-#include "cs_matrix_priv.h"
 #include "cs_matrix_tuning.h"
 #include "cs_matrix_util.h"
 #include "cs_multigrid.h"
@@ -53,6 +52,10 @@
 #include "cs_sles.h"
 #include "cs_sles_it.h"
 #include "cs_sles_pc.h"
+
+#if defined(HAVE_AMGX)
+#include "cs_sles_amgx.h"
+#endif
 
 // Avoid extra warnings by not including this by default...
 // #include "cs_sles_petsc.h"

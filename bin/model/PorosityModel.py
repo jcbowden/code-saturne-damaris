@@ -90,7 +90,7 @@ class PorosityModel(Variables, Model):
         zoneDico = {}
         zonesList = LocalizationModel('VolumicZone', self.case).getZones()
         for zone in zonesList:
-            if zone.getNature()['porosity'] == 'on':
+            if zone.isNatureActivated("porosity"):
                 label = zone.getLabel()
                 zoneid = zone.getCodeNumber()
                 localization = zone.getLocalization()
@@ -106,7 +106,8 @@ class PorosityModel(Variables, Model):
         Set name and label zone for porosity markups.
         """
         self.node_porosit.xmlInitChildNode('porosity', zone_id=zoneid)
-        self.getPorosityModel(zoneid)
+        mdl = self.__defaultValues()['choice']
+        self.setPorosityModel(zoneid, mdl)
 
 
     @Variables.noUndo
@@ -117,12 +118,11 @@ class PorosityModel(Variables, Model):
         self.isInt(int(zoneid))
         node = self.node_porosit.xmlGetNode('porosity', zone_id=zoneid)
 
-        mdl = node['model']
-        if mdl == None:
-            mdl = self.__defaultValues()['choice']
-            self.setPorosityModel(zoneid, mdl)
-        return mdl
-
+        try:
+            return node["model"]
+        except TypeError as e:
+            message = "Porosity not activated for zone : {0}".format(zoneid)
+            raise Exception(message).with_traceback(e.__traceback__)
 
     @Variables.undoLocal
     def setPorosityModel(self, zoneid, choice):
@@ -130,7 +130,7 @@ class PorosityModel(Variables, Model):
         Get the Transfo Matrix choice
         """
         self.isInt(int(zoneid))
-        self.isInList(choice, ['isotropic', 'anisotropic'])
+        self.isInList(choice, ['isotropic', 'anisotropic', 'integral'])
         node = self.node_porosit.xmlGetNode('porosity', zone_id=zoneid)
 
         oldchoice = node['model']
@@ -175,17 +175,17 @@ class PorosityModel(Variables, Model):
         Public method.
         Return the default formula for the porosity.
         """
-        self.isInList(choice, ['isotropic', 'anisotropic'])
-        if choice == 'isotropic':
-            formula = """porosity=1.;"""
+        self.isInList(choice, ['isotropic', 'anisotropic', 'integral'])
+        if choice == 'anisotropic':
+            formula = """porosity = 1.;
+tensorial_porosity[XX] = 1.;
+tensorial_porosity[YY] = 1.;
+tensorial_porosity[ZZ] = 1.;
+tensorial_porosity[XY] = 0.;
+tensorial_porosity[XZ] = 0.;
+tensorial_porosity[YZ] = 0.;"""
         else:
-            formula = """porosity=1.;
-tensorial_porosity[XX]=1.;
-tensorial_porosity[YY]=1.;
-tensorial_porosity[ZZ]=1.;
-tensorial_porosity[XY]=0.;
-tensorial_porosity[XZ]=0.;
-tensorial_porosity[YZ]=0.;"""
+            formula = """porosity = 1.;"""
 
         return formula
 
@@ -195,7 +195,7 @@ tensorial_porosity[YZ]=0.;"""
 
         exp = self.getPorosityFormula(zoneid)
 
-        if self.getPorosityModel(zoneid) == 'isotropic':
+        if self.getPorosityModel(zoneid) in ('isotropic', 'integral'):
             req = [('porosity', 'Porosity')]
         else:
             req = [('porosity', 'Porosity'),

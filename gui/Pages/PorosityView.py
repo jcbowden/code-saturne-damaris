@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 # This file is part of Code_Saturne, a general-purpose CFD tool.
 #
@@ -20,7 +20,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 51 Franklin
 # Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 """
 This module defines the Porosity model data management.
@@ -30,23 +30,23 @@ This module contains the following classes:
 - PorosityView
 """
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Library modules import
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 import sys, logging
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Third-party modules
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
-from code_saturne.Base.QtCore    import *
-from code_saturne.Base.QtGui     import *
+from code_saturne.Base.QtCore import *
+from code_saturne.Base.QtGui import *
 from code_saturne.Base.QtWidgets import *
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Application modules import
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 from code_saturne.model.Common import GuiParam
 from code_saturne.Base.QtPage import ComboModel
@@ -57,68 +57,22 @@ from code_saturne.Pages.QMegEditorView import QMegEditorView
 from code_saturne.model.PorosityModel import PorosityModel
 from code_saturne.model.NotebookModel import NotebookModel
 
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # log config
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 logging.basicConfig()
 log = logging.getLogger("PorosityView")
 log.setLevel(GuiParam.DEBUG)
 
-#-------------------------------------------------------------------------------
-# StandarItemModel class to display Head Losses Zones in a QTreeView
-#-------------------------------------------------------------------------------
 
-
-class StandardItemModelPorosity(QStandardItemModel):
-    def __init__(self):
-        QStandardItemModel.__init__(self)
-        self.headers = [self.tr("Label"), self.tr("Zone"),
-                        self.tr("Selection criteria")]
-        self.setColumnCount(len(self.headers))
-        self.dataPorosityZones = []
-
-
-    def data(self, index, role):
-        if not index.isValid():
-            return None
-        if role == Qt.DisplayRole:
-            return self.dataPorosityZones[index.row()][index.column()]
-        return None
-
-    def flags(self, index):
-        if not index.isValid():
-            return Qt.ItemIsEnabled
-        else:
-            return Qt.ItemIsEnabled | Qt.ItemIsSelectable
-
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return self.headers[section]
-        return None
-
-    def setData(self, index, value, role):
-        self.dataChanged.emit(index, index)
-        return True
-
-    def insertItem(self, label, name, local):
-        line = [label, name, local]
-        self.dataPorosityZones.append(line)
-        row = self.rowCount()
-        self.setRowCount(row+1)
-
-
-    def getItem(self, row):
-        return self.dataPorosityZones[row]
-
-
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Main view class
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 class PorosityView(QWidget, Ui_PorosityForm):
 
-    def __init__(self, parent, case):
+    def __init__(self, parent=None):
         """
         Constructor
         """
@@ -127,136 +81,126 @@ class PorosityView(QWidget, Ui_PorosityForm):
         Ui_PorosityForm.__init__(self)
         self.setupUi(self)
 
+        self.case = None
+        self.model = None
+        self.notebook = None
+        self.zone = None
+
+    def setup(self, case, zone_name):
         self.case = case
         self.case.undoStopGlobal()
-
-        self.mdl = PorosityModel(self.case)
+        self.model = PorosityModel(self.case)
         self.notebook = NotebookModel(self.case)
+        localization_model = LocalizationModel("VolumicZone", self.case)
+        for zone in localization_model.getZones():
+            if zone.getLabel() == zone_name:
+                self.zone = zone
 
-        # Create the Page layout.
+        if self.zone.isNatureActivated("porosity"):
+            self.setViewFromCase()
+        else:  # TODO check if content of tab should still be visible or not
+            self.displayDefaultView()
+            self.setEnabled(False)
 
-        # Model and QTreeView for Head Losses
-        self.modelPorosity = StandardItemModelPorosity()
-        self.treeView.setModel(self.modelPorosity)
+        self.case.undoStartGlobal()
 
-        # Combo model
+    def setViewFromCase(self):
+        # TODO should method be renamed ?
         if self.case.module_name() == 'code_saturne':
-            self.modelPorosityType = ComboModel(self.comboBoxType, 2, 1)
+            self.modelPorosityType = ComboModel(self.comboBoxType, 3, 1)
             self.modelPorosityType.addItem(self.tr("isotropic"), 'isotropic')
             self.modelPorosityType.addItem(self.tr("anisotropic"), 'anisotropic')
+            self.modelPorosityType.addItem(self.tr("integral model"), 'integral')
         else:
             self.modelPorosityType = ComboModel(self.comboBoxType, 1, 1)
             self.modelPorosityType.addItem(self.tr("isotropic"), 'isotropic')
             self.modelPorosityType.disableItem(index=0)
-
-        # Connections
-        self.treeView.clicked[QModelIndex].connect(self.slotSelectPorosityZones)
         self.comboBoxType.activated[str].connect(self.slotPorosity)
         self.pushButtonPorosity.clicked.connect(self.slotFormulaPorosity)
+        self.selectPorosityZones()
 
-        # Initialize Widgets
-
-        self.entriesNumber = -1
-        d = self.mdl.getNameAndLocalizationZone()
-        liste=[]
-        liste=list(d.items())
-        t=[]
-        for t in liste :
-            NamLoc=t[1]
-            Lab=t[0 ]
-            self.modelPorosity.insertItem(Lab, NamLoc[0],NamLoc[1])
-        self.forgetStandardWindows()
-
-        self.case.undoStartGlobal()
-
-
-    @pyqtSlot(QModelIndex)
-    def slotSelectPorosityZones(self, index):
-        label, name, local = self.modelPorosity.getItem(index.row())
+    def selectPorosityZones(self):
+        zone_label = self.zone.getLabel()
+        zone_id = self.zone.getCodeNumber()
 
         if hasattr(self, "modelScalars"): del self.modelScalars
-        log.debug("slotSelectPorosityZones label %s " % label )
+        log.debug("slotSelectPorosityZones label %s " % zone_label)
         self.groupBoxType.show()
         self.groupBoxDef.show()
 
-        choice = self.mdl.getPorosityModel(name)
+        choice = self.model.getPorosityModel(zone_id)
         self.modelPorosityType.setItem(str_model=choice)
 
-        exp = self.mdl.getPorosityFormula(name)
+        exp = self.model.getPorosityFormula(zone_id)
         if exp:
             self.pushButtonPorosity.setToolTip(exp)
             self.pushButtonPorosity.setStyleSheet("background-color: green")
         else:
             self.pushButtonPorosity.setStyleSheet("background-color: red")
 
-        self.entriesNumber = index.row()
-
-
-    def forgetStandardWindows(self):
-        """
-        For forget standard windows
-        """
-        self.groupBoxType.hide()
-        self.groupBoxDef.hide()
-
-
     @pyqtSlot(str)
     def slotPorosity(self, text):
         """
         Method to call 'getState' with correct arguements for 'rho'
         """
-        label, name, local = self.modelPorosity.getItem(self.entriesNumber)
+        zone_id = self.zone.getCodeNumber()
         choice = self.modelPorosityType.dicoV2M[str(text)]
 
-        self.mdl.setPorosityModel(name, choice)
-
+        self.model.setPorosityModel(zone_id, choice)
 
     @pyqtSlot()
     def slotFormulaPorosity(self):
         """
         User formula for density
         """
-        label, name, local = self.modelPorosity.getItem(self.entriesNumber)
+        zone_label = self.zone.getLabel()
+        zone_id = self.zone.getCodeNumber()
 
-        choice = self.mdl.getPorosityModel(name)
+        choice = self.model.getPorosityModel(zone_id)
         fname = 'porosity'
         if choice == 'anisotropic':
             fname += '+tensorial_porosity'
 
-        exp, req, sca, sym = self.mdl.getPorosityFormulaComponents(name)
+        exp, req, sca, sym = self.model.getPorosityFormulaComponents(zone_id)
 
         if exp == None:
             exp = self.getDefaultPorosityFormula(choice)
 
-        exa = """#example: \n""" + self.mdl.getDefaultPorosityFormula(choice)
+        exa = """#example: \n""" + self.model.getDefaultPorosityFormula(choice)
 
-        dialog = QMegEditorView(parent        = self,
-                                function_type = 'vol',
-                                zone_name     = label,
-                                variable_name = fname,
-                                expression    = exp,
-                                required      = req,
-                                symbols       = sym,
-                                known_fields  = sca,
-                                examples      = exa)
+        dialog = QMegEditorView(parent=self,
+                                function_type='vol',
+                                zone_name=zone_label,
+                                variable_name=fname,
+                                expression=exp,
+                                required=req,
+                                symbols=sym,
+                                known_fields=sca,
+                                examples=exa)
 
         if dialog.exec_():
             result = dialog.get_result()
             log.debug("slotFormulaPorosity -> %s" % str(result))
-            self.mdl.setPorosityFormula(name, str(result))
+            self.model.setPorosityFormula(zone_id, str(result))
             self.pushButtonPorosity.setToolTip(result)
             self.pushButtonPorosity.setStyleSheet("background-color: green")
 
+    def displayDefaultView(self):
+        self.modelPorosityType = ComboModel(self.comboBoxType, 1, 1)
+        self.modelPorosityType.addItem(self.tr("isotropic"), 'isotropic')
+        self.modelPorosityType.setItem(str_model="isotropic")
+        self.groupBoxType.show()
+        self.groupBoxDef.show()
 
-#-------------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------------
 # Testing part
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 
 
 if __name__ == "__main__":
     pass
 
-
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # End
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------

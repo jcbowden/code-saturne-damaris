@@ -50,38 +50,98 @@ BEGIN_C_DECLS
  * Type definitions
  *============================================================================*/
 
+/* ---------------------------------------------------------------------------
+ * Function pointers for CDO face-based schemes
+ * -------------------------------------------------------------------------- */
+
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief   Define the local convection operator in CDO-Fb schemes
+ * \brief  Perform preprocessing such as the computation of the advection flux
+ *         at the expected location in order to be able to build the advection
  *
- * \param[in]      cm          pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes      array of advective fluxes on primal faces
- * \param[in, out] adv         pointer to a cs_sdm_t structure to update
+ * \param[in]      eqp      pointer to a cs_equation_param_t structure
+ * \param[in]      cm       pointer to a cs_cell_mesh_t structure
+ * \param[in]      csys     pointer to a cs_cell_sys_t structure
+ * \param[in, out] input    NULL or pointer to a structure cast on-the-fly
+ * \param[in, out] cb       pointer to a cs_cell_builder_t structure
  */
 /*----------------------------------------------------------------------------*/
 
 typedef void
-(cs_cdofb_advection_t)(const cs_cell_mesh_t      *cm,
-                       const cs_real_t            fluxes[],
-                       cs_sdm_t                  *adv);
+(cs_cdofb_adv_open_hook_t)(const cs_equation_param_t   *eqp,
+                           const cs_cell_mesh_t        *cm,
+                           const cs_cell_sys_t         *csys,
+                           void                        *input,
+                           cs_cell_builder_t           *cb);
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes
+ * \brief   Define the local convection operator in CDO-Fb schemes. Case of an
+ *          operator that should be assemble into a matrix. Boundary conditions
+ *          are also handled in this function.
  *
- * \param[in]      eqp     pointer to a \ref cs_equation_param_t structure
- * \param[in]      cm      pointer to a \ref cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a \ref cs_cell_builder_t structure
- * \param[in, out] csys    cell-wise structure storing the local system
+ * \param[in]      dim     dimension of the variable (1 or 3)
+ * \param[in]      cm      pointer to a cs_cell_mesh_t structure
+ * \param[in]      csys    pointer to a cs_cell_sys_t structure
+ * \param[in]      cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to a local matrix to build
  */
 /*----------------------------------------------------------------------------*/
 
 typedef void
-(cs_cdofb_advection_bc_t)(const cs_equation_param_t   *eqp,
-                          const cs_cell_mesh_t        *cm,
-                          cs_cell_builder_t           *cb,
-                          cs_cell_sys_t               *csys);
+(cs_cdofb_adv_scheme_t)(int                        dim,
+                        const cs_cell_mesh_t      *cm,
+                        const cs_cell_sys_t       *csys,
+                        cs_cell_builder_t         *cb,
+                        cs_sdm_t                  *adv);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief   Build the cellwise advection operator for CDO-Fb schemes
+ *          The local matrix related to this operator is stored in cb->loc
+ *
+ *          This pointer of function manages how is build the advection term
+ *          in a cell and it relies on the lower-level function
+ *          \ref cs_cdofb_adv_scheme_t
+ *
+ * \param[in]      eqp          pointer to a cs_equation_param_t structure
+ * \param[in]      cm           pointer to a cs_cell_mesh_t structure
+ * \param[in]      csys         pointer to a cs_cell_sys_t structure
+ * \param[in]      scheme_func  function pointer to the scheme definition
+ * \param[in, out] cb           pointer to a cs_cell_builder_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+typedef void
+(cs_cdofb_adv_build_t)(const cs_equation_param_t   *eqp,
+                       const cs_cell_mesh_t        *cm,
+                       const cs_cell_sys_t         *csys,
+                       cs_cdofb_adv_scheme_t       *scheme_func,
+                       cs_cell_builder_t           *cb);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief   Operation done after the matrix related to the advection term has
+ *          been defined.
+ *
+ * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ * \param[in]      cm      pointer to a cs_cell_mesh_t structure
+ * \param[in, out] csys    pointer to a cs_cell_sys_t structure
+ * \param[in, out] cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to the local advection matrix
+ */
+/*----------------------------------------------------------------------------*/
+
+typedef void
+(cs_cdofb_adv_close_hook_t)(const cs_equation_param_t   *eqp,
+                            const cs_cell_mesh_t        *cm,
+                            cs_cell_sys_t               *csys,
+                            cs_cell_builder_t           *cb,
+                            cs_sdm_t                    *adv);
+
+/* ---------------------------------------------------------------------------
+ * Function pointers for CDO vertex-based schemes
+ * -------------------------------------------------------------------------- */
 
 /*----------------------------------------------------------------------------*/
 /*!
@@ -158,11 +218,150 @@ cs_cdo_advection_get_cip_coef(void);
 
 /*----------------------------------------------------------------------------*/
 /*!
+ * \brief  Perform preprocessing such as the computation of the advection flux
+ *         at the expected location in order to be able to build the advection
+ *         Follow the prototype given by cs_cdofb_adv_open_hook_t
+ *         Default case.
+ *
+ * \param[in]      eqp      pointer to a cs_equation_param_t structure
+ * \param[in]      cm       pointer to a cs_cell_mesh_t structure
+ * \param[in]      csys     pointer to a cs_cell_sys_t structure
+ * \param[in, out] input    NULL or pointer to a structure cast on-the-fly
+ * \param[in, out] cb       pointer to a cs_cell_builder_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_cdofb_advection_open_std(const cs_equation_param_t   *eqp,
+                            const cs_cell_mesh_t        *cm,
+                            const cs_cell_sys_t         *csys,
+                            void                        *input,
+                            cs_cell_builder_t           *cb);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Operation done after the matrix related to the advection term has
+ *         been defined.
+ *         Follow the prototype given by cs_cdofb_adv_close_hook_t
+ *         Default scalar-valued case.
+ *
+ * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ * \param[in]      cm      pointer to a cs_cell_mesh_t structure
+ * \param[in, out] csys    pointer to a cs_cell_sys_t structure
+ * \param[in, out] cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to the local advection matrix
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_cdofb_advection_close_std_scal(const cs_equation_param_t   *eqp,
+                                  const cs_cell_mesh_t        *cm,
+                                  cs_cell_sys_t               *csys,
+                                  cs_cell_builder_t           *cb,
+                                  cs_sdm_t                    *adv);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Operation done after the matrix related to the advection term has
+ *         been defined.
+ *         Follow the prototype given by cs_cdofb_adv_close_hook_t
+ *         Default vector-valued case.
+ *
+ * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ * \param[in]      cm      pointer to a cs_cell_mesh_t structure
+ * \param[in, out] csys    pointer to a cs_cell_sys_t structure
+ * \param[in, out] cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to the local advection matrix
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_cdofb_advection_close_std_vect(const cs_equation_param_t   *eqp,
+                                  const cs_cell_mesh_t        *cm,
+                                  cs_cell_sys_t               *csys,
+                                  cs_cell_builder_t           *cb,
+                                  cs_sdm_t                    *adv);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Operation done after the matrix related to the advection term has
+ *         been defined.
+ *         Follow the prototype given by cs_cdofb_adv_close_hook_t
+ *         Explicit treatment without extrapolation for scalar-valued DoFs.
+ *
+ * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ * \param[in]      cm      pointer to a cs_cell_mesh_t structure
+ * \param[in, out] csys    pointer to a cs_cell_sys_t structure
+ * \param[in, out] cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to the local advection matrix
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_cdofb_advection_close_exp_none_scal(const cs_equation_param_t   *eqp,
+                                       const cs_cell_mesh_t        *cm,
+                                       cs_cell_sys_t               *csys,
+                                       cs_cell_builder_t           *cb,
+                                       cs_sdm_t                    *adv);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Operation done after the matrix related to the advection term has
+ *         been defined.
+ *         Follow the prototype given by cs_cdofb_adv_close_hook_t
+ *         Explicit treatment without extrapolation for vector-valued DoFs.
+ *
+ * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ * \param[in]      cm      pointer to a cs_cell_mesh_t structure
+ * \param[in, out] csys    pointer to a cs_cell_sys_t structure
+ * \param[in, out] cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to the local advection matrix
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_cdofb_advection_close_exp_none_vect(const cs_equation_param_t   *eqp,
+                                       const cs_cell_mesh_t        *cm,
+                                       cs_cell_sys_t               *csys,
+                                       cs_cell_builder_t           *cb,
+                                       cs_sdm_t                    *adv);
+
+/*----------------------------------------------------------------------------*/
+/*!
  * \brief   Build the cellwise advection operator for CDO-Fb schemes
  *          The local matrix related to this operator is stored in cb->loc
  *
+ *          Case of an advection term without a diffusion operator. In this
+ *          situation, a numerical issue may arise if an internal or a border
+ *          face is such that there is no advective flux. A specil treatment
+ *          is performed to tackle this issue.
+ *
  * \param[in]      eqp         pointer to a cs_equation_param_t structure
  * \param[in]      cm          pointer to a cs_cell_mesh_t structure
+ * \param[in]      csys        pointer to a cs_cell_sys_t structure
+ * \param[in]      build_func  pointer to the function building the system
+ * \param[in, out] cb          pointer to a cs_cell_builder_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_cdofb_advection_build_no_diffusion(const cs_equation_param_t   *eqp,
+                                      const cs_cell_mesh_t        *cm,
+                                      const cs_cell_sys_t         *csys,
+                                      cs_cdofb_adv_scheme_t       *build_func,
+                                      cs_cell_builder_t           *cb);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief   Build the cellwise advection operator for CDO-Fb schemes
+ *          The local matrix related to this operator is stored in cb->loc
+ *
+ *          A diffusion term is present so that there is no need to perform
+ *          additional checkings.
+ *
+ * \param[in]      eqp         pointer to a cs_equation_param_t structure
+ * \param[in]      cm          pointer to a cs_cell_mesh_t structure
+ * \param[in]      csys        pointer to a cs_cell_sys_t structure
  * \param[in]      build_func  pointer to the function building the system
  * \param[in, out] cb          pointer to a cs_cell_builder_t structure
  */
@@ -171,491 +370,121 @@ cs_cdo_advection_get_cip_coef(void);
 void
 cs_cdofb_advection_build(const cs_equation_param_t   *eqp,
                          const cs_cell_mesh_t        *cm,
-                         cs_cdofb_advection_t        *build_func,
+                         const cs_cell_sys_t         *csys,
+                         cs_cdofb_adv_scheme_t       *build_func,
                          cs_cell_builder_t           *cb);
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (without diffusion)
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc(const cs_equation_param_t   *eqp,
-                       const cs_cell_mesh_t        *cm,
-                       cs_cell_builder_t           *cb,
-                       cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (without diffusion)
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_cen(const cs_equation_param_t   *eqp,
-                           const cs_cell_mesh_t        *cm,
-                           cs_cell_builder_t           *cb,
-                           cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (without diffusion). Vector-valued case.
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_cen_v(const cs_equation_param_t   *eqp,
-                             const cs_cell_mesh_t        *cm,
-                             cs_cell_builder_t           *cb,
-                             cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (with a diffusion term activated)
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_wdi(const cs_equation_param_t   *eqp,
-                           const cs_cell_mesh_t        *cm,
-                           cs_cell_builder_t           *cb,
-                           cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (without diffusion). Vector-valued case.
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_v(const cs_equation_param_t   *eqp,
-                         const cs_cell_mesh_t        *cm,
-                         cs_cell_builder_t           *cb,
-                         cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (with a diffusion term activated). Vector-valued
- *          case.
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_wdi_v(const cs_equation_param_t   *eqp,
-                             const cs_cell_mesh_t        *cm,
-                             cs_cell_builder_t           *cb,
-                             cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (with a diffusion term activated)
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_cen_wdi(const cs_equation_param_t   *eqp,
-                               const cs_cell_mesh_t        *cm,
-                               cs_cell_builder_t           *cb,
-                               cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (with a diffusion term activated). Vector-valued
- *          case.
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
- * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_bc_cen_wdi_v(const cs_equation_param_t   *eqp,
-                                 const cs_cell_mesh_t        *cm,
-                                 cs_cell_builder_t           *cb,
-                                 cs_cell_sys_t               *csys);
-
-/*----------------------------------------------------------------------------*/
-/*!
  * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
+ *         face-based scheme
+ *         - non-conservative formulation beta \cdot \grad
  *         - upwind scheme
- *         - no diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
+ *         Rely on the work performed during R. Milani's PhD
  *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_upwcsv(const cs_cell_mesh_t      *cm,
-                           const cs_real_t            fluxes[],
-                           cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - centered scheme
- *         - no diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
+ *         A scalar-valued version is built. Only the enforcement of the
+ *         boundary condition depends on the variable dimension.
+ *         Remark: Usually the local matrix called hereafter adv is stored
+ *         in cb->loc
  *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_cencsv(const cs_cell_mesh_t      *cm,
-                           const cs_real_t            fluxes[],
-                           cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - upwind scheme
- *         - diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_upwcsv_di(const cs_cell_mesh_t      *cm,
-                              const cs_real_t            fluxes[],
-                              cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - centered scheme
- *         - diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_cencsv_di(const cs_cell_mesh_t      *cm,
-                              const cs_real_t            fluxes[],
-                              cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the non-conservative formulation
- *         - upwind scheme
- *         - no diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] cb        pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_upwnoc(const cs_cell_mesh_t      *cm,
-                           const cs_real_t            fluxes[],
-                           cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the non-conservative formulation
- *         - centered scheme
- *         - no diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] cb        pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_cennoc(const cs_cell_mesh_t      *cm,
-                           const cs_real_t            fluxes[],
-                           cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the non-conservative formulation
- *         - upwind scheme
- *         - diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] cb        pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_upwnoc_di(const cs_cell_mesh_t      *cm,
-                              const cs_real_t            fluxes[],
-                              cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the non-conservative formulation
- *         - centered scheme
- *         - diffusion is present
- *         Rely on the article: Di Pietro, Droniou, Ern (2015)
- *         A discontinuous-skeletal method for advection-diffusion-reaction on
- *         general meshes
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] cb        pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_cennoc_di(const cs_cell_mesh_t      *cm,
-                              const cs_real_t            fluxes[],
-                              cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - upwind scheme
- *         - no diffusion is present
- *         Rely on the article: Botti, Di Pietro, Droniou (2018)
- *         A Hybrid High-Order method for the incompressible Navier-Stokes
- *         equations based on Temam's device
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_upwskw(const cs_cell_mesh_t      *cm,
-                           const cs_real_t            fluxes[],
-                           cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - upwind scheme
- *         - diffusion is present
- *         Rely on the article: Botti, Di Pietro, Droniou (2018)
- *         A Hybrid High-Order method for the incompressible Navier-Stokes
- *         equations based on Temam's device
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_upwskw_di(const cs_cell_mesh_t      *cm,
-                              const cs_real_t            fluxes[],
-                              cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - centered scheme
- *         - no diffusion is present
- *         Rely on the article: Botti, Di Pietro, Droniou (2018)
- *         A Hybrid High-Order method for the incompressible Navier-Stokes
- *         equations based on Temam's device
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_censkw(const cs_cell_mesh_t      *cm,
-                           const cs_real_t            fluxes[],
-                           cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief  Compute the convection operator attached to a cell with a CDO
- *         face-based scheme in the conservative formulation
- *         - centered scheme
- *         - diffusion is present
- *         Rely on the article: Botti, Di Pietro, Droniou (2018)
- *         A Hybrid High-Order method for the incompressible Navier-Stokes
- *         equations based on Temam's device
- *         The local matrix related to this operator is stored in cb->loc
- *
- * \param[in]      cm        pointer to a cs_cell_mesh_t structure
- * \param[in]      fluxes    array of computed fluxes across cell faces
- * \param[in, out] adv       pointer to a local matrix to build
- */
-/*----------------------------------------------------------------------------*/
-
-void
-cs_cdo_advection_fb_censkw_di(const cs_cell_mesh_t      *cm,
-                              const cs_real_t            fluxes[],
-                              cs_sdm_t                  *adv);
-
-/*----------------------------------------------------------------------------*/
-/*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (without diffusion)
- *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ * \param[in]      dim     dimension of the variable (1 or 3)
  * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
+ * \param[in]      csys    pointer to a cs_cell_sys_t structure
+ * \param[in]      cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to a local matrix to build
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_cdo_advection_fb_bc_skw(const cs_equation_param_t   *eqp,
-                           const cs_cell_mesh_t        *cm,
-                           cs_cell_builder_t           *cb,
-                           cs_cell_sys_t               *csys);
+cs_cdofb_advection_upwnoc(int                        dim,
+                          const cs_cell_mesh_t      *cm,
+                          const cs_cell_sys_t       *csys,
+                          cs_cell_builder_t         *cb,
+                          cs_sdm_t                  *adv);
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (with a diffusion term activated)
+ * \brief  Compute the convection operator attached to a cell with a CDO
+ *         face-based scheme
+ *         - conservative formulation div(\beta )
+ *         - upwind scheme
+ *         Rely on the work performed during R. Milani's PhD
  *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ *         A scalar-valued version is built. Only the enforcement of the
+ *         boundary condition depends on the variable dimension.
+ *         Remark: Usually the local matrix called hereafter adv is stored
+ *         in cb->loc
+ *
+ * \param[in]      dim     dimension of the variable (1 or 3)
  * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
+ * \param[in]      csys    pointer to a cs_cell_sys_t structure
+ * \param[in]      cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to a local matrix to build
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_cdo_advection_fb_bc_skw_wdi(const cs_equation_param_t   *eqp,
-                               const cs_cell_mesh_t        *cm,
-                               cs_cell_builder_t           *cb,
-                               cs_cell_sys_t               *csys);
+cs_cdofb_advection_upwcsv(int                        dim,
+                          const cs_cell_mesh_t      *cm,
+                          const cs_cell_sys_t       *csys,
+                          cs_cell_builder_t         *cb,
+                          cs_sdm_t                  *adv);
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (without diffusion). Vector-valued case.
+ * \brief  Compute the convection operator attached to a cell with a CDO
+ *         face-based scheme
+ *         - non-conservative formulation beta.grad
+ *         - centered scheme
+ *         Rely on the work performed during R. Milani's PhD
  *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ *         A scalar-valued version is built. Only the enforcement of the
+ *         boundary condition depends on the variable dimension.
+ *         Remark: Usually the local matrix called hereafter adv is stored
+ *         in cb->loc
+ *
+ * \param[in]      dim     dimension of the variable (1 or 3)
  * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
+ * \param[in]      csys    pointer to a cs_cell_sys_t structure
+ * \param[in]      cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to a local matrix to build
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_cdo_advection_fb_bc_skw_v(const cs_equation_param_t   *eqp,
-                             const cs_cell_mesh_t        *cm,
-                             cs_cell_builder_t           *cb,
-                             cs_cell_sys_t               *csys);
+cs_cdofb_advection_cennoc(int                        dim,
+                          const cs_cell_mesh_t      *cm,
+                          const cs_cell_sys_t       *csys,
+                          cs_cell_builder_t         *cb,
+                          cs_sdm_t                  *adv);
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief   Add the contribution of the boundary conditions to the local system
- *          in CDO-Fb schemes (with a diffusion term activated). Vector-valued
- *          case.
+ * \brief  Compute the convection operator attached to a cell with a CDO
+ *         face-based scheme
+ *         - conservative formulation div(beta )
+ *         - centered scheme
+ *         Rely on the work performed during R. Milani's PhD
  *
- * \param[in]      eqp     pointer to a cs_equation_param_t structure
+ *         A scalar-valued version is built. Only the enforcement of the
+ *         boundary condition depends on the variable dimension.
+ *         Remark: Usually the local matrix called hereafter adv is stored
+ *         in cb->loc
+ *
+ * \param[in]      dim     dimension of the variable (1 or 3)
  * \param[in]      cm      pointer to a cs_cell_mesh_t structure
- * \param[in, out] cb      pointer to a convection builder structure
- * \param[in, out] csys    cell-wise structure storing the local system
+ * \param[in]      csys    pointer to a cs_cell_sys_t structure
+ * \param[in]      cb      pointer to a cs_cell_builder_t structure
+ * \param[in, out] adv     pointer to a local matrix to build
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_cdo_advection_fb_bc_skw_wdi_v(const cs_equation_param_t   *eqp,
-                                 const cs_cell_mesh_t        *cm,
-                                 cs_cell_builder_t           *cb,
-                                 cs_cell_sys_t               *csys);
+cs_cdofb_advection_cencsv(int                        dim,
+                          const cs_cell_mesh_t      *cm,
+                          const cs_cell_sys_t       *csys,
+                          cs_cell_builder_t         *cb,
+                          cs_sdm_t                  *adv);
 
 /*----------------------------------------------------------------------------*/
 /*!

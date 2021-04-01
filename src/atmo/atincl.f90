@@ -82,16 +82,16 @@ double precision, allocatable, dimension(:,:) :: ttmet
 !> meteo specific humidity profile (read in the input meteo file)
 double precision, allocatable, dimension(:,:) :: qvmet
 
-!> meteo specific drplet number profile (read in the input meteo file)
+!> meteo specific droplet number profile (read in the input meteo file)
 double precision, allocatable, dimension(:,:) :: ncmet
 
 !> Sea level pressure (read in the input meteo file)
 double precision, allocatable, dimension(:) :: pmer
 
-!> X axis cooordinates of the meteo profile (read in the input meteo file)
+!> X axis coordinates of the meteo profile (read in the input meteo file)
 double precision, allocatable, dimension(:) :: xmet
 
-!> Y axis cooordinates of the meteo profile (read in the input meteo file)
+!> Y axis coordinates of the meteo profile (read in the input meteo file)
 double precision, allocatable, dimension(:) :: ymet
 
 !   Arrays specific to values calculated from the meteo file (cf atlecm.f90):
@@ -104,12 +104,6 @@ double precision, allocatable, dimension(:,:) :: tpmet
 
 !> hydrostatic pressure from Laplace integration
 double precision, dimension(:,:), pointer :: phmet
-
-!> Diagnosed nebulosity
-double precision, dimension(:), pointer :: nebdia
-
-!> fractional nebulosity
-double precision, dimension(:), pointer :: nn
 
 ! 1.2 Pointers for the positions of the variables
 !------------------------------------------------
@@ -170,29 +164,21 @@ integer, save :: initmeteo
 
 !> add a momentum source term based on the meteo profile
 !> for automatic open boundaries
-integer, save :: iatmst
+integer(c_int), pointer, save :: iatmst
 
 !> flag for meteo velocity field interpolation
 !> - 0: linear interpolation of the meteo profile
 !> - 1: the user can directly impose the exact meteo velocity
 !> by declaring the 'meteo_velocity' field
 !> Useful for iatmst = 1
+!> Note: deprecated, imeteo=2 can be used instead.
 integer, save :: theo_interp
 
 ! 2.1 Constant specific to the physics (defined in atini1.f90)
 !-------------------------------------------------------------------------------
 
 !> reference pressure (to compute potential temp: 1.0d+5)
-double precision, save:: ps
-
-!> ratio Cp h2o/ dry air: 1.866d0
-double precision, save:: cpvcpa
-
-!> temperature gradient for the standard atmosphere (-6.5d-03 K/m)
-double precision, save:: gammat
-
-!> rvsra*rair
-double precision, save:: rvap
+real(c_double), pointer, save:: ps
 
 ! 2.2. Space and time reference of the run
 !-------------------------------------------------------------------------------
@@ -278,11 +264,6 @@ integer, save:: igrid
 !> 1: enabled
 integer, save:: irdu
 
-!> Flag for storage of downward and upward solar radiative fluxes
-!> 0: disabled
-!> 1: enabled
-integer, save:: soldu
-
 ! 2.6 Arrays specific to the 1d atmospheric radiative module
 !-------------------------------------------------------------------------------
 
@@ -359,7 +340,7 @@ integer(c_int), pointer, save:: modsub
 !> Option for liquid water content distribution models
 !>  - moddis = 1 : all or nothing
 !>  - moddis = 2 : Gaussian distribution
-integer, save::  moddis
+integer(c_int), pointer, save:: moddis
 
 !> Option for nucleation
 !>  - modnuc = 0 : without nucleation
@@ -385,6 +366,35 @@ integer, save :: init_at_chem
 !> key id for optimal interpolation
 integer, save :: kopint
 
+!> Aerosol optical properties
+
+! Aerosol optical depth
+!> adimensional :  aod_o3_tot=0.2 other referenced values are  0.10, 0.16
+double precision, save:: aod_o3_tot
+!> adimensional :  aod_h2o_tot=0.10 other referenced values are  0.06, 0.08
+double precision, save:: aod_h2o_tot
+
+!> Asymmetry factor for O3 (non-dimensional)
+!> climatic value gaero_o3=0.66
+double precision, save:: gaero_o3
+!> Asymmetry factor for H2O (non-dimensional)
+!> climatic value gaero_h2o=0.64
+double precision, save:: gaero_h2o
+
+!> Single scattering albedo for O3 (non-dimensional)
+!> climatic value piaero_o3=0.84, other referenced values are 0.963
+double precision, save:: piaero_o3
+!> Single scattering albedo for H2O (non-dimensional)
+!> climatic value piaero_h2o=0.84, other referenced values are 0.964
+double precision, save:: piaero_h2o
+
+!> Fraction of Black carbon (non-dimensional): black_carbon_frac=1.d-8 for no BC
+double precision, save:: black_carbon_frac
+
+!> Maximal height for aerosol distribution on the vertical
+!> important should be <= zqq(kmray-1);
+!> in meters : referenced value: zaero=6000
+double precision, save:: zaero
 !> \}
 
 !=============================================================================
@@ -393,23 +403,40 @@ integer, save :: kopint
 
     !---------------------------------------------------------------------------
 
+    ! Interface to C function returning a meteo file name
+
+    subroutine cs_f_atmo_get_meteo_file_name(f_name_max, f_name, f_name_len)  &
+      bind(C, name='cs_f_atmo_get_meteo_file_name')
+      use, intrinsic :: iso_c_binding
+      implicit none
+      integer(c_int), value       :: f_name_max
+      type(c_ptr), intent(out)    :: f_name
+      integer(c_int), intent(out) :: f_name_len
+    end subroutine cs_f_atmo_get_meteo_file_name
+
+    !---------------------------------------------------------------------------
+
     !> \brief Return pointers to atmo includes
 
-    subroutine cs_f_atmo_get_pointers(syear, squant, shour, smin, ssec, &
+    subroutine cs_f_atmo_get_pointers(ps,                               &
+        syear, squant, shour, smin, ssec,                               &
         longitude, latitude,                                            &
-        compute_z_ground,                                               &
+        compute_z_ground, iatmst,                                       &
         sedimentation_model, deposition_model, nucleation_model,        &
-        subgrid_model, ichemistry, nespg, nrg, chem_with_photo,         &
+        subgrid_model, distribution_model,                              &
+        ichemistry, nespg, nrg, chem_with_photo,                        &
         iaerosol, frozen_gas_chem, init_gas_with_lib,                   &
         init_aero_with_lib, n_aero, n_sizebin, imeteo,                  &
         nbmetd, nbmett, nbmetm, nbmaxt)                                 &
       bind(C, name='cs_f_atmo_get_pointers')
       use, intrinsic :: iso_c_binding
       implicit none
-      type(c_ptr), intent(out) :: compute_z_ground, ichemistry, nespg, nrg
+      type(c_ptr), intent(out) :: ps
+      type(c_ptr), intent(out) :: compute_z_ground, iatmst
+      type(c_ptr), intent(out) :: ichemistry, nespg, nrg
       type(c_ptr), intent(out) :: sedimentation_model, deposition_model
       type(c_ptr), intent(out) :: nucleation_model
-      type(c_ptr), intent(out) :: subgrid_model
+      type(c_ptr), intent(out) :: subgrid_model, distribution_model
       type(c_ptr), intent(out) :: syear, squant, shour, smin, ssec
       type(c_ptr), intent(out) :: longitude, latitude
       type(c_ptr), intent(out) :: iaerosol, frozen_gas_chem
@@ -418,6 +445,26 @@ integer, save :: kopint
       type(c_ptr), intent(out) :: imeteo
       type(c_ptr), intent(out) :: nbmetd, nbmett, nbmetm, nbmaxt
     end subroutine cs_f_atmo_get_pointers
+
+    !---------------------------------------------------------------------------
+
+    !> \brief Initialize meteo profiles if no meteo file is given
+
+    subroutine cs_atmo_init_meteo_profiles() &
+        bind(C, name='cs_atmo_init_meteo_profiles')
+      use, intrinsic :: iso_c_binding
+      implicit none
+    end subroutine cs_atmo_init_meteo_profiles
+
+    !---------------------------------------------------------------------------
+
+    !> \brief Compute meteo profiles if no meteo file is given
+
+    subroutine cs_atmo_compute_meteo_profiles() &
+        bind(C, name='cs_atmo_compute_meteo_profiles')
+      use, intrinsic :: iso_c_binding
+      implicit none
+    end subroutine cs_atmo_compute_meteo_profiles
 
     !---------------------------------------------------------------------------
 
@@ -535,6 +582,44 @@ integer, save :: kopint
 
 contains
 
+    !=============================================================================
+
+    !> \brief Return meteo file name
+
+    !> \param[out]  name   meteo file name
+
+    subroutine atmo_get_meteo_file_name(name)
+
+      use, intrinsic :: iso_c_binding
+      implicit none
+
+      ! Arguments
+
+      character(len=*), intent(out) :: name
+
+      ! Local variables
+
+      integer :: i
+      integer(c_int) :: name_max, c_name_len
+      type(c_ptr) :: c_name_p
+      character(kind=c_char, len=1), dimension(:), pointer :: c_name
+
+      name_max = len(name)
+
+      call cs_f_atmo_get_meteo_file_name(name_max, c_name_p, c_name_len)
+      call c_f_pointer(c_name_p, c_name, [c_name_len])
+
+      do i = 1, c_name_len
+        name(i:i) = c_name(i)
+      enddo
+      do i = c_name_len + 1, name_max
+        name(i:i) = ' '
+      enddo
+
+      return
+
+    end subroutine atmo_get_meteo_file_name
+
   !=============================================================================
 
   !> \brief Map fortran to C variables
@@ -549,9 +634,11 @@ contains
     implicit none
 
     ! Local variables
-    type(c_ptr) :: c_compute_z_ground, c_model, c_nrg, c_nespg
+    type(c_ptr) :: c_ps
+    type(c_ptr) :: c_compute_z_ground, c_iatmst, c_model, c_nrg, c_nespg
     type(c_ptr) :: c_sedimentation_model, c_deposition_model, c_nucleation_model
     type(c_ptr) :: c_subgrid_model
+    type(c_ptr) :: c_distribution_model
     type(c_ptr) :: c_syear, c_squant, c_shour, c_smin, c_ssec
     type(c_ptr) :: c_longitude, c_latitude
     type(c_ptr) :: c_modelaero, c_frozen_gas_chem, c_nlayer, c_nsize
@@ -559,12 +646,13 @@ contains
     type(c_ptr) :: c_imeteo
     type(c_ptr) :: c_nbmetd, c_nbmett, c_nbmetm, c_nbmaxt
 
-    call cs_f_atmo_get_pointers(                  &
+    call cs_f_atmo_get_pointers(c_ps,             &
       c_syear, c_squant, c_shour, c_smin, c_ssec, &
       c_longitude, c_latitude,                    &
-      c_compute_z_ground,                         &
+      c_compute_z_ground, c_iatmst,               &
       c_sedimentation_model, c_deposition_model,  &
       c_nucleation_model, c_subgrid_model,        &
+      c_distribution_model,                       &
       c_model, c_nespg, c_nrg, c_chem_with_photo, &
       c_modelaero, c_frozen_gas_chem,             &
       c_init_gas_with_lib,                        &
@@ -572,6 +660,7 @@ contains
       c_nsize, c_imeteo,                          &
       c_nbmetd, c_nbmett, c_nbmetm, c_nbmaxt)
 
+    call c_f_pointer(c_ps, ps)
     call c_f_pointer(c_syear, syear)
     call c_f_pointer(c_squant, squant)
     call c_f_pointer(c_shour, shour)
@@ -582,11 +671,13 @@ contains
     call c_f_pointer(c_latitude, xlat)
 
     call c_f_pointer(c_compute_z_ground, compute_z_ground)
+    call c_f_pointer(c_iatmst, iatmst)
 
     call c_f_pointer(c_sedimentation_model, modsedi)
     call c_f_pointer(c_deposition_model, moddep)
     call c_f_pointer(c_nucleation_model, modnuc)
     call c_f_pointer(c_subgrid_model, modsub)
+    call c_f_pointer(c_distribution_model, moddis)
 
     call c_f_pointer(c_model, ichemistry)
     call c_f_pointer(c_nespg, nespg)
@@ -618,27 +709,27 @@ use atsoil
 
 implicit none
 
-integer :: imode, ifac
 ! Local variables
+integer :: imode, n_level, n_times, n_level_t
+
 type(c_ptr) :: c_z_temp_met, c_time_met
-type(c_ptr) :: c_frac_neb, c_diag_neb
 type(c_ptr) :: c_hyd_p_met
 
 integer(c_int),   dimension(2) :: dim_hyd_p_met
 
-if (imeteo.gt.0) then
+if (imeteo.eq.1) then
   call atlecm(0)
+endif
+if (imeteo.eq.2) then
+  call cs_atmo_init_meteo_profiles()
 endif
 
 call cs_f_atmo_arrays_get_pointers(c_z_temp_met, c_time_met,     &
-                                   c_hyd_p_met, dim_hyd_p_met,   &
-                                   c_frac_neb, c_diag_neb)
+                                   c_hyd_p_met, dim_hyd_p_met)
 
 call c_f_pointer(c_z_temp_met, ztmet, [nbmaxt])
 call c_f_pointer(c_time_met, tmmet, [nbmetm])
 call c_f_pointer(c_hyd_p_met, phmet, [dim_hyd_p_met])
-call c_f_pointer(c_frac_neb, nn, [ncelet])
-call c_f_pointer(c_diag_neb, nebdia, [ncelet])
 
 ! Allocate additional arrays for Water Microphysics
 
@@ -646,23 +737,23 @@ if (imeteo.gt.0) then
 
   ! NB : only ztmet,ttmet,qvmet,ncmet are extended to 11000m if iatr1=1
   !           rmet,tpmet,phmet
-  allocate(zdmet(nbmetd))
-  allocate(dpdt_met(nbmetd))
-  allocate(mom(3, nbmetd))
-  allocate(mom_met(3, nbmetd))
-  allocate(umet(nbmetd,nbmetm), vmet(nbmetd,nbmetm), wmet(nbmetd,nbmetm))
-  allocate(ekmet(nbmetd,nbmetm), epmet(nbmetd,nbmetm))
-  allocate(ttmet(nbmaxt,nbmetm), qvmet(nbmaxt,nbmetm), ncmet(nbmaxt,nbmetm))
-  allocate(pmer(nbmetm))
-  allocate(xmet(nbmetm), ymet(nbmetm))
-  allocate(rmet(nbmaxt,nbmetm), tpmet(nbmaxt,nbmetm))
+  n_level = max(1, nbmetd)
+  n_times = max(1, nbmetm)
+  n_level_t = max(1, nbmaxt)
+  allocate(zdmet(n_level))
 
-  ! Allocate and initialize auto inlet/outlet flag
+  if (iatmst.ge.1) then
+    allocate(dpdt_met(n_level))
+    allocate(mom(3, n_level))
+    allocate(mom_met(3, n_level))
+  endif
 
-  allocate(iautom(nfabor))
-  do ifac = 1, nfabor
-    iautom(ifac) = 0
-  enddo
+  allocate(umet(n_level,n_times), vmet(n_level,n_times), wmet(n_level,n_times))
+  allocate(ekmet(n_level,n_times), epmet(n_level,n_times))
+  allocate(ttmet(n_level_t,n_times), qvmet(n_level_t,n_times), ncmet(n_level_t,n_times))
+  allocate(pmer(n_times))
+  allocate(xmet(n_times), ymet(n_times))
+  allocate(rmet(n_level_t,n_times), tpmet(n_level_t,n_times))
 
   ! Allocate additional arrays for 1D radiative model
 
@@ -689,15 +780,40 @@ if (imeteo.gt.0) then
       allocate(iru(kmx,nvert), ird(kmx,nvert))
     endif
 
-    if (soldu.eq.1) then
-      allocate(sold(kmx,nvert), solu(kmx,nvert))
-    endif
+    allocate(sold(kmx,nvert), solu(kmx,nvert))
 
   endif
 
 endif
 
 end subroutine init_meteo
+
+!===============================================================================
+
+!> \brief Initialisation of meteo data
+subroutine init_atmo_autom(nfabor)
+
+use cs_c_bindings
+
+implicit none
+
+integer nfabor
+
+! Local variables
+integer :: ifac
+
+! Allocate additional arrays for Water Microphysics
+if (imeteo.gt.0) then
+
+  ! Allocate and initialize auto inlet/outlet flag
+  allocate(iautom(nfabor))
+  do ifac = 1, nfabor
+    iautom(ifac) = 0
+  enddo
+
+endif
+
+end subroutine init_atmo_autom
 
 !=============================================================================
 
@@ -714,7 +830,9 @@ call cs_f_atmo_finalize()
 if (imeteo.gt.0) then
 
   deallocate(zdmet)
-  deallocate(mom, mom_met, dpdt_met)
+  if (allocated(mom)) then
+    deallocate(mom, mom_met, dpdt_met)
+  endif
   deallocate(umet, vmet, wmet)
   deallocate(ekmet, epmet)
   deallocate(ttmet, qvmet, ncmet)
@@ -743,9 +861,7 @@ if (imeteo.gt.0) then
       deallocate(iru, ird)
     endif
 
-    if (soldu.eq.1) then
-      deallocate(solu, sold)
-    endif
+    deallocate(solu, sold)
 
   endif
 
@@ -774,7 +890,7 @@ subroutine mo_phim_s (z,dlmo,coef)
   b=2.5d0
   x=z * dlmo
 
-  coef=1.d0+a*(x+(x**b)*((1.d0+x**b)**((1.d0-b)/b)))/(x+(1.d0+x**b)**(1./b))
+  coef=1.d0+a*(x+(x**b)*((1.d0+x**b)**((1.d0-b)/b)))/(x+(1.d0+x**b)**(1.d0/b))
 
 end subroutine mo_phim_s
 
@@ -790,7 +906,7 @@ subroutine mo_phih_s (z,dlmo,coef)
   b=1.1d0
   x=z * dlmo
 
-  coef=1.d0+a*(x+(x**b)*((1.d0+x**b)**((1.d0-b)/b)))/(x+(1.d0+x**b)**(1./b))
+  coef=1.d0+a*(x+(x**b)*((1.d0+x**b)**((1.d0-b)/b)))/(x+(1.d0+x**b)**(1.d0/b))
 
 end subroutine mo_phih_s
 
@@ -973,11 +1089,14 @@ end subroutine mo_psih_n
 
 ! Derivative function
 
-subroutine mo_phim (z,dlmo,coef)
+function cs_mo_phim(z,dlmo) result(coef) &
+    bind(C, name='cs_mo_phim')
+  use, intrinsic :: iso_c_binding
 
   implicit none
 
-  double precision z,dlmo,coef
+  real(c_double), value :: z,dlmo
+  real(c_double) :: coef
   double precision :: dlmoneutral = 1.d-12
 
   if (abs(dlmo).lt.dlmoneutral) then
@@ -988,13 +1107,16 @@ subroutine mo_phim (z,dlmo,coef)
     call mo_phim_u(z,dlmo,coef)
   endif
 
-end subroutine mo_phim
+end function cs_mo_phim
 
-subroutine mo_phih (z,dlmo,coef)
+function cs_mo_phih(z,dlmo) result(coef) &
+    bind(C, name='cs_mo_phih')
+  use, intrinsic :: iso_c_binding
 
   implicit none
 
-  double precision z,dlmo,coef
+  real(c_double), value :: z,dlmo
+  real(c_double) :: coef
   double precision :: dlmoneutral = 1.d-12
 
   if (abs(dlmo).lt.dlmoneutral) then
@@ -1005,15 +1127,18 @@ subroutine mo_phih (z,dlmo,coef)
     call mo_phih_u(z,dlmo,coef)
   endif
 
-end subroutine mo_phih
+end function cs_mo_phih
 
 ! Integrated version from z0 to z
 
-subroutine mo_psim (z,z0,dlmo,coef)
-
+function cs_mo_psim(z,z0,dlmo) result(coef) &
+    bind(C, name='cs_mo_psim')
+  use, intrinsic :: iso_c_binding
   implicit none
+  real(c_double), value :: z,z0,dlmo
+  real(c_double) :: coef
 
-  double precision z,z0,dlmo,coef
+  ! Local variable
   double precision :: dlmoneutral = 1.d-12
 
   if (abs(dlmo).lt.dlmoneutral) then
@@ -1024,13 +1149,16 @@ subroutine mo_psim (z,z0,dlmo,coef)
     call mo_psim_u(z,z0,dlmo,coef)
   endif
 
-end subroutine mo_psim
+end function cs_mo_psim
 
-subroutine mo_psih (z,z0,dlmo,coef)
+function cs_mo_psih (z,z0,dlmo) result(coef) &
+    bind(C, name='cs_mo_psih')
+  use, intrinsic :: iso_c_binding
 
   implicit none
 
-  double precision z,z0,dlmo,coef
+  real(c_double), value :: z,z0,dlmo
+  real(c_double) :: coef
   double precision :: dlmoneutral = 1.d-12
 
   if (abs(dlmo).lt.dlmoneutral) then
@@ -1041,7 +1169,7 @@ subroutine mo_psih (z,z0,dlmo,coef)
     call mo_psih_u(z,z0,dlmo,coef)
   endif
 
-end subroutine mo_psih
+end function cs_mo_psih
 
 !---------------------------------------------------------------------------
 
@@ -1074,6 +1202,7 @@ subroutine mo_compute_from_thermal_flux(z,z0,du,flux,tm,gredu,dlmo,ustar)
   double precision coef_mom
   double precision prec_lmo,prec_ustar,prec_tstar,arr_lmo
   double precision num, denom
+  double precision :: dlmoclip = 0.05d0
   integer icompt
 
   ! Precision initialisation
@@ -1092,7 +1221,7 @@ subroutine mo_compute_from_thermal_flux(z,z0,du,flux,tm,gredu,dlmo,ustar)
   endif
 
   ! Call universal functions
-  call mo_psim(z+z0,z0,dlmo,coef_mom)
+  coef_mom = cs_mo_psim((z+z0),z0,dlmo)
 
   ! Initial ustar and tstar
   ustar = xkappa * du / coef_mom
@@ -1117,13 +1246,13 @@ subroutine mo_compute_from_thermal_flux(z,z0,du,flux,tm,gredu,dlmo,ustar)
   endif
 
   ! Clipping dlmo (|LMO| < 20m  ie 1/|LMO| > 0.05 m^-1)
-  if (abs(dlmo).ge.0.05d0) then
-    if (dlmo.ge.0.d0) dlmo=0.05d0
-    if (dlmo.le.0.d0) dlmo=-0.05d0
+  if (abs(dlmo).ge.dlmoclip) then
+    if (dlmo.ge.0.d0) dlmo =   dlmoclip
+    if (dlmo.le.0.d0) dlmo = - dlmoclip
   endif
 
   ! Evaluate universal functions
-  call mo_psim (z+z0,z0,dlmo,coef_mom)
+  coef_mom = cs_mo_psim((z+z0),z0,dlmo)
 
   ! Update ustar,tstar
   ustar = xkappa*du/coef_mom
@@ -1176,6 +1305,8 @@ subroutine mo_compute_from_thermal_diff(z,z0,du,dt,tm,gredu,dlmo,ustar)
   double precision coef_mom,coef_moh
   double precision prec_lmo,prec_ustar,prec_tstar,arr_lmo
   double precision num, denom
+  real(c_double) :: zref
+  double precision :: dlmoclip = 0.05d0
   integer icompt
 
   ! Precision initialisation
@@ -1194,8 +1325,9 @@ subroutine mo_compute_from_thermal_diff(z,z0,du,dt,tm,gredu,dlmo,ustar)
   endif
 
   ! Call universal functions
-  call mo_psim(z+z0,z0,dlmo,coef_mom)
-  call mo_psih(z+z0,z0,dlmo,coef_moh)
+  zref = z+z0
+  coef_mom = cs_mo_psim(zref,z0,dlmo)
+  coef_moh = cs_mo_psih(zref,z0,dlmo)
 
   ! Initial ustar and tstar
   ustar = xkappa * du / coef_mom
@@ -1224,15 +1356,15 @@ subroutine mo_compute_from_thermal_diff(z,z0,du,dt,tm,gredu,dlmo,ustar)
     dlmo = 0.d0 !FIXME
   endif
 
-  ! Clipping LMO
-  if (abs(dlmo).ge.0.05d0) then
-    if (dlmo.ge.0.d0) dlmo= 0.05d0
-    if (dlmo.le.0.d0) dlmo=-0.05d0
+  ! Clipping dlmo (|LMO| < 20m  ie 1/|LMO| > 0.05 m^-1)
+  if (abs(dlmo).ge.dlmoclip) then
+    if (dlmo.ge.0.d0) dlmo =   dlmoclip
+    if (dlmo.le.0.d0) dlmo = - dlmoclip
   endif
 
   ! Evaluate universal functions
-  call mo_psim (z+z0,z0,dlmo,coef_mom)
-  call mo_psih (z+z0,z0,dlmo,coef_moh)
+  coef_mom = cs_mo_psim((z+z0),z0,dlmo)
+  coef_moh = cs_mo_psih(z+z0,z0,dlmo)
 
   ! Update ustar,tstar
   ustar = xkappa*du/coef_mom

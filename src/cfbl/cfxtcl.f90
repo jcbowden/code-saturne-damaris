@@ -109,14 +109,14 @@ double precision rcodcl(nfabor,nvar,3)
 integer          ifac  , iel
 integer          ii    , iccfth
 integer          icalep
-integer          ien   , itk
+integer          ien   , itk, niv
 integer          nvarcf
 
 integer          nvcfmx
 parameter       (nvcfmx=6)
 integer          ivarcf(nvcfmx)
 
-double precision hint, bmasfl
+double precision hint, bmasfl, drom
 
 double precision, allocatable, dimension(:) :: w5
 double precision, allocatable, dimension(:) :: w7
@@ -327,15 +327,34 @@ do ifac = 1, nfabor
     ! we look for the variable to be initialized
     ! (if a zero value has been given, it is not adapted, so it will
     ! be considered as not initialized and the computation will stop
-    ! displaying an error message
-    iccfth = 10000
-    if(rcodcl(ifac,ipr,1).lt.rinfin*0.5d0) iccfth = 2*iccfth
-    if(brom(ifac).gt.0.d0                ) iccfth = 3*iccfth
-    if(rcodcl(ifac,itk,1).lt.rinfin*0.5d0) iccfth = 5*iccfth
-    if(rcodcl(ifac,ien,1).lt.rinfin*0.5d0) iccfth = 7*iccfth
+    ! displaying an error message. The boundary density may
+    ! be pre-initialized to the cell density also, so is tested last.
 
-    if(iccfth.le.70000.and.iccfth.ne.60000.or.iccfth.eq.350000) then
-      write(nfecra,1000)iccfth
+    iel = ifabor(ifac)
+    drom = abs(crom(iel) - brom(ifac))
+
+    niv = 0
+    iccfth = 10000
+    if (rcodcl(ifac,ipr,1).lt.rinfin*0.5d0) then
+      iccfth = 2*iccfth
+      niv = niv + 1
+    endif
+    if (rcodcl(ifac,itk,1).lt.rinfin*0.5d0) then
+      iccfth = 5*iccfth
+      niv = niv + 1
+    endif
+    if (rcodcl(ifac,ien,1).lt.rinfin*0.5d0) then
+      iccfth = 7*iccfth
+      niv = niv + 1
+    endif
+
+    if (brom(ifac).gt.0.d0 .and. (niv.lt.2 .or. drom.gt.epzero)) then
+      iccfth = 3*iccfth
+      niv = niv + 1
+    endif
+
+    if (niv .ne. 2) then
+      write(nfecra,1000) iccfth
       call csexit (1)
     endif
     iccfth = iccfth + 900
@@ -349,9 +368,6 @@ do ifac = 1, nfabor
     bc_vel(3,ifac) = rcodcl(ifac,iw,1)
 
     call cs_cf_thermo(iccfth, ifac-1, bc_en, bc_pr, bc_tk, bc_vel)
-
-    ! Rusanov fluxes, mass flux and boundary conditions types (icodcl) are
-    ! dealt with further below
 
 !===============================================================================
 ! 3.2 Outlet with imposed pressure
@@ -375,8 +391,6 @@ do ifac = 1, nfabor
     bc_vel(3,ifac) = rcodcl(ifac,iw,1)
 
     call cs_cf_thermo_subsonic_outlet_bc(bc_en, bc_pr, bc_vel, ifac-1)
-
-    ! mass fluxes and boundary conditions codes, see further below.
 
 !===============================================================================
 ! 3.3 Inlet with Ptot, Htot imposed (reservoir boundary conditions)
@@ -404,8 +418,6 @@ do ifac = 1, nfabor
 
     call cs_cf_thermo_ph_inlet_bc(bc_en, bc_pr, bc_vel, ifac-1)
 
-    ! mass fluxes and boundary conditions codes, see further below.
-
 !===============================================================================
 ! 3.4 Inlet with imposed rho*U and rho*U*H
 !===============================================================================
@@ -431,9 +443,9 @@ do ifac = 1, nfabor
 
 !===============================================================================
 ! 4. Complete the treatment for inlets and outlets:
-!    - mass fluxes computation
 !    - boundary convective fluxes computation (analytical or Rusanov) if needed
 !    - B.C. code (Dirichlet or Neumann)
+!    - Dirichlet values
 !===============================================================================
 
   if (itypfb(ifac).eq.iesicf.or.                    &
@@ -443,15 +455,16 @@ do ifac = 1, nfabor
       itypfb(ifac).eq.ieqhcf) then
 
 !===============================================================================
-! 4.1 Mass fluxes computation and
-!     boundary convective fluxes computation (analytical or Rusanov) if needed
+! 4.1 Boundary convective fluxes computation (analytical or Rusanov) if needed
 !     (gamma should already have been computed if Rusanov fluxes are computed)
 !===============================================================================
 
     ! Rusanov fluxes are computed only for the imposed inlet for stability
-    ! reasons (the mass flux computation is concluded)
+    ! reasons.
     if (itypfb(ifac).eq.iesicf) then
 
+    ! Dirichlet for velocity and pressure are computed in order to
+    ! impose the Rusanov fluxes in mass, momentum and energy balance.
       call cfrusb(ifac, bc_en, bc_pr, bc_vel)
 
     ! For the other types of inlets/outlets (subsonic outlet, QH inlet,
@@ -493,8 +506,6 @@ do ifac = 1, nfabor
         rcodcl(ifac,isca(ifrace),3) = 0.d0
       endif
     endif
-
-
 
 !===============================================================================
 ! 4.3 Boundary conditions codes (Dirichlet or Neumann)
@@ -691,12 +702,11 @@ deallocate(bc_en, bc_pr, bc_tk, bc_fracv, bc_fracm, bc_frace, bc_vel)
 '@    =========                                               ',/,&
 '@    two and only two independant variables among            ',/,&
 '@    P, rho, T and E have to be imposed at boundaries of type',/,&
-'@    iesicf in uscfcl (iccfth = ',I10,').                  ',/,&
+'@    iesicf in uscfcl (iccfth = ',i10,').                  ',/,&
 '@                                                            ',/,&
 '@    The computation will stop.                              ',/,&
 '@                                                            ',/,&
-'@    Check the boundary conditions in                        ',/,&
-'@    cs_user_boundary_conditions                             ',/,&
+'@    Check the boundary condition definitions.               ',/,&
 '@                                                            ',/,&
 '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',/,&
 '@                                                            ',/)

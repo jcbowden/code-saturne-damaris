@@ -374,6 +374,36 @@ cs_equation_by_name(const char    *eqname)
 
 /*----------------------------------------------------------------------------*/
 /*!
+ * \brief  Return the pointer to a cs_equation_t structure thanks to the field
+ *         name of the variable field associated to a cs_equation_t structure
+ *
+ * \param[in]  field_name       name of the field
+ *
+ * \return a pointer to a cs_equation_t structure or NULL if not found
+ */
+/*----------------------------------------------------------------------------*/
+
+cs_equation_t *
+cs_equation_by_field_name(const char    *field_name)
+{
+  if (field_name == NULL)
+    return NULL;
+
+  for (int i = 0; i < _n_equations; i++) {
+
+    cs_equation_t  *eq = _equations[i];
+    assert(eq != NULL);
+
+    if (cs_equation_has_field_name(eq, field_name))
+      return eq;
+
+  } /* Loop on equations */
+
+  return NULL;
+}
+
+/*----------------------------------------------------------------------------*/
+/*!
  * \brief  Check if the asociated field to a \ref cs_equation_t structure
  *         has name equal to fld_name
  *
@@ -419,16 +449,38 @@ cs_equation_param_by_name(const char    *eqname)
   if (eqname == NULL)
     return NULL;
 
-  else {
+  cs_equation_t  *eq = cs_equation_by_name(eqname);
 
-    cs_equation_t  *eq = cs_equation_by_name(eqname);
+  if (eq == NULL)
+    return NULL;
+  else
+    return eq->param;
+}
 
-    if (eq == NULL)
-      return NULL;
-    else
-      return eq->param;
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Return the cs_equation_param_t structure related to a
+ *         cs_equation_t structure thanks to the field name of the variable
+ *         field associated to a cs_equation_t structure
+ *
+ * \param[in]  field_name       name of the field
+ *
+ * \return a cs_equation_param_t structure or NULL if not found
+ */
+/*----------------------------------------------------------------------------*/
 
-  }
+cs_equation_param_t *
+cs_equation_param_by_field_name(const char    *field_name)
+{
+  if (field_name == NULL)
+    return NULL;
+
+  cs_equation_t  *eq = cs_equation_by_field_name(field_name);
+
+  if (eq == NULL)
+    return NULL;
+  else
+    return eq->param;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -919,6 +971,7 @@ cs_equation_get_theta_time_val(const cs_equation_t    *eq)
     case CS_TIME_SCHEME_CRANKNICO:
       theta = 0.5;
       break;
+    case CS_TIME_SCHEME_BDF2:
     case CS_TIME_SCHEME_EULER_IMPLICIT:
       theta = 1;
       break;
@@ -1915,6 +1968,7 @@ cs_equation_set_functions(void)
           eq->solve = cs_cdovb_scaleq_solve_theta;
           break;
 
+        case CS_TIME_SCHEME_BDF2:
         default:
           bft_error(__FILE__, __LINE__, 0,
                     "%s: Eq. %s. This time scheme is not yet implemented",
@@ -1956,6 +2010,7 @@ cs_equation_set_functions(void)
         case CS_TIME_SCHEME_STEADY:
         eq->solve = eq->solve_steady_state;
           break;
+        case CS_TIME_SCHEME_BDF2:
         case CS_TIME_SCHEME_EULER_IMPLICIT:
         case CS_TIME_SCHEME_THETA:
         case CS_TIME_SCHEME_CRANKNICO:
@@ -2015,6 +2070,7 @@ cs_equation_set_functions(void)
           eq->solve = cs_cdovcb_scaleq_solve_theta;
           break;
 
+        case CS_TIME_SCHEME_BDF2:
         default:
           bft_error(__FILE__, __LINE__, 0,
                     "%s: Eq. %s. This time scheme is not yet implemented",
@@ -2071,6 +2127,7 @@ cs_equation_set_functions(void)
           eq->solve = cs_cdofb_scaleq_solve_theta;
           break;
 
+        case CS_TIME_SCHEME_BDF2:
         default:
           bft_error(__FILE__, __LINE__, 0,
                     "%s: Eq. %s. This time scheme is not yet implemented",
@@ -2120,6 +2177,13 @@ cs_equation_set_functions(void)
         case CS_TIME_SCHEME_THETA:
         case CS_TIME_SCHEME_CRANKNICO:
           eq->solve = cs_cdofb_vecteq_solve_theta;
+          break;
+
+        case CS_TIME_SCHEME_BDF2:
+          eq->solve = NULL; /* cs_cdofb_vecteq_solve_bdf2 */
+          bft_error(__FILE__, __LINE__, 0,
+                    "%s: Eq. %s. This time scheme is not yet implemented",
+                    __func__, eqp->name);
           break;
 
         default:
@@ -2496,8 +2560,8 @@ cs_equation_solve_deprecated(cs_equation_t   *eq)
                                                    &residual,
                                                    b,
                                                    x,
-                                                   0,      // aux. size
-                                                   NULL);  // aux. buffers
+                                                   0,      /* aux. size */
+                                                   NULL);  /* aux. buffers */
 
   if (sles_param.verbosity > 0) {
 

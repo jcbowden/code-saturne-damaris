@@ -44,6 +44,7 @@ from code_saturne import cs_runcase
 def coupling(package,
              domains,
              casedir,
+             dest_dir = None,
              staging_dir = None,
              verbose = True,
              package_compute = None):
@@ -175,7 +176,8 @@ def coupling(package,
                                      param = d.get('param'),
                                      n_procs_weight = d.get('n_procs_weight'),
                                      n_procs_min = d.get('n_procs_min'),
-                                     n_procs_max = d.get('n_procs_max'))
+                                     n_procs_max = d.get('n_procs_max'),
+                                     verbose = verbose)
 
             except Exception:
                 err_str = 'Cannot create SYRTHES domain. Opt = ' + d.get('opt') + '\n'
@@ -241,6 +243,7 @@ def coupling(package,
     c = case(package,
              package_compute = package_compute,
              case_dir = casedir,
+             dest_dir = dest_dir,
              staging_dir = staging_dir,
              domains = sat_domains + nep_domains + cat_domains,
              syr_domains = syr_domains,

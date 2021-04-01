@@ -98,13 +98,17 @@ typedef struct {
 
 typedef struct {
 
+  int     n_coals;                  /*< number of coal types */
   int     nclacp;                   /*< number of coal classes */
 
-  /*! ashes concentration (kg/kg) */
-  double  xashch[CS_COMBUSTION_MAX_COALS];
+  /*! number of classes per coal */
+  int     n_classes_per_coal[CS_COMBUSTION_MAX_COALS];
 
   /*! coal id if considered class belongs to coal ich[1, 2, ...] */
   int     ichcor[CS_COMBUSTION_MAX_COAL_CLASSES];
+
+  /*! ashes concentration (kg/kg) */
+  double  xashch[CS_COMBUSTION_MAX_COALS];
 
   /*! initial diameter (m) */
   double  diam20[CS_COMBUSTION_MAX_COAL_CLASSES];
@@ -143,6 +147,13 @@ typedef struct {
   cs_combustion_gas_model_t   gas;   /*!< gas combustion model parameters */
   cs_combustion_coal_model_t  coal;  /*!< coal combustion model parameters */
   cs_combustion_fuel_model_t  fuel;  /*!< fuel combustion model parameters */
+
+  int     n_gas_el_comp;             /*!< number of elementary gas components */
+  int     n_gas_species;             /*!< number of global species */
+  int     n_atomic_species;          /*!< number of atomic species */
+
+  int     n_reactions;               /*!< number of global reactions
+                                      *   in gas phase */
 
   int     isoot;                     /*!< soot production modeling flag */
 

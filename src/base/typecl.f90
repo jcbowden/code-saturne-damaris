@@ -586,7 +586,7 @@ elseif (ixyzp0.lt.0.and.ntcabs.eq.ntpabs+1) then
 
   ifadir = -1
   do ifac = 1, nfabor
-    if (icodcl(ifac,ipr).eq.1) then
+    if (abs(icodcl(ifac,ipr)).eq.1) then
       d0 =   (cdgfbo(1,ifac)-xyzp0(1))**2  &
            + (cdgfbo(2,ifac)-xyzp0(2))**2  &
            + (cdgfbo(3,ifac)-xyzp0(3))**2
@@ -1553,6 +1553,25 @@ do iscal = 1, nscal
     enddo
   endif
 enddo
+
+! Put homogeneous Neumann on wall distance
+! if not modified by the user
+
+call field_get_id_try("wall_distance", f_id)
+if (f_id.ge.0) then
+  call field_get_type(f_id, f_type)
+  ! Is the field of type FIELD_VARIABLE?
+  if (iand(f_type, FIELD_VARIABLE).eq.FIELD_VARIABLE) then
+    if (iand(f_type, FIELD_CDO)/=FIELD_CDO) then
+      call field_get_key_int(f_id, keyvar, ivar)
+      do ifac = 1, nfabor
+        if(icodcl(ifac,ivar).eq.0) then
+          icodcl(ifac,ivar) = 3
+        endif
+      enddo
+    endif
+  endif
+endif
 
 !===============================================================================
 ! 7.  RENFORCEMENT DIAGONALE DE LA MATRICE SI AUCUN POINTS DIRICHLET

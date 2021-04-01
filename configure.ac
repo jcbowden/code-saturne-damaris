@@ -474,10 +474,12 @@ AC_ARG_ENABLE(openmp,
 if test "x$cs_have_openmp" = "xyes" ; then
 
   saved_CFLAGS="$CFLAGS"
+  saved_CXXFLAGS="$CFLAGS"
   saved_FCFLAGS="$FCFLAGS"
   saved_LDFLAGS="$LDFLAGS"
 
   CFLAGS="${CFLAGS} ${cflags_default_omp}"
+  CXXFLAGS="${CXXFLAGS} ${cxxflags_default_omp}"
   FCFLAGS="${FCFLAGS} ${fcflags_default_omp}"
   LDFLAGS="${LDFLAGS} ${cflags_default_omp}"
 
@@ -521,6 +523,7 @@ if test "x$cs_have_openmp" = "xyes" ; then
   else
     cs_have_openmp=no
     CFLAGS="$saved_CFLAGS"
+    CXXFLAGS="$saved_CXXFLAGS"
     FCFLAGS="$saved_FCFLAGS"
     LDFLAGS="$saved_LDFLAGS"
   fi
@@ -696,6 +699,7 @@ CS_AC_TEST_MELISSA
 CS_AC_TEST_DAMARIS
 CS_AC_TEST_MUMPS
 CS_AC_TEST_PETSC
+CS_AC_TEST_AMGX
 
 CS_AC_TEST_DOCS
 
@@ -1221,6 +1225,9 @@ if test x$cs_have_frontend = xno ; then
   echo " use frontend: no"
 else
   echo " use graphical user interface: "$cs_have_gui""
+  if test x$cs_have_gui_qt4 = xyes ; then
+    echo "    Warning: using PyQt4 is deprecated"
+  fi
 fi
 if test x$cs_have_backend = xno ; then
   echo " use backend: no"
@@ -1274,6 +1281,7 @@ echo " freesteam support: "$cs_have_freesteam""
 echo " CoolProp support: "$cs_have_coolprop""
 echo " PETSc support: "$cs_have_petsc""
 echo " MUMPS support: "$cs_have_mumps""
+echo " AMGX support: "$cs_have_amgx""
 echo " Dynamic loader support: "$cs_have_dlloader""
 if (test "x$cs_env_modules" != "x") ; then
   echo " Auto load environment modules: "$cs_env_modules""

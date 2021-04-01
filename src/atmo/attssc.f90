@@ -87,6 +87,7 @@ double precision, dimension(:), pointer :: cvar_pottemp
 double precision, dimension(:), pointer :: cpro_tempc
 double precision, dimension(:), pointer :: cpro_liqwt
 double precision, dimension(:,:), pointer :: vel
+double precision, dimension(:), pointer :: cpro_met_p
 
 !===============================================================================
 ! 1. Initialization
@@ -104,8 +105,12 @@ call field_get_val_v(ivarfl(iu), vel)
 ! density
 call field_get_val_s(icrom, crom)
 
+if (imeteo.ge.2) then
+  call field_get_val_s_by_name('meteo_pressure', cpro_met_p)
+endif
+
 !===============================================================================
-! 2. Taking into acount radiative forcing for the 1d radiative module
+! 2. Taking into account radiative forcing for the 1d radiative module
 !    (if the 3D module is not activated)
 !===============================================================================
 
@@ -198,13 +203,17 @@ if (ippmod(iatmos).eq.2.and.modsedi.eq.1) then ! for humid atmo. physics only
           do iel = 1, ncel
             call atmstd(xyzcen(3,iel),pphy(iel),dum,dum)
           enddo
-        else
-            ! calculate pressure from meteo file
+        else if (imeteo.eq.1) then
+          ! calculate pressure from meteo file
           do iel = 1, ncel
             call intprf                                                 &
                  ( nbmett, nbmetm,                                      &
                  ztmet , tmmet , phmet , xyzcen(3,iel), ttcabs,         &
                  pphy(iel) )
+          enddo
+        else
+          do iel = 1, ncel
+            pphy(iel) = cpro_met_p(iel)
           enddo
         endif
 
@@ -236,10 +245,12 @@ if (ippmod(iatmos).eq.2.and.modsedi.eq.1) then ! for humid atmo. physics only
       do iel = 1, ncel
         if (imeteo.eq.0) then
           call atmstd(xyzcen(3,iel),pp,dum,dum)
-        else
+        else if (imeteo.eq.1) then
           call intprf &
                ( nbmett, nbmetm,                                        &
                  ztmet , tmmet , phmet , xyzcen(3,iel) , ttcabs, pp )
+        else
+          pp = cpro_met_p(iel)
         endif
 
         crvexp(iel) = crvexp(iel) -clatev*(ps/pp)**(rair/cp0)           &
@@ -386,7 +397,7 @@ contains
 
     ! Local variables
 
-    double precision climgp, epsrgp, extrap, depo
+    double precision climgp, epsrgp, depo
 
     integer    iccocg, ii, iifld, imligp, inc, iwarnp, imrgrp, nswrgp, ifac, iel
     double precision, dimension(:), allocatable :: local_coefa, local_coefb
@@ -429,10 +440,12 @@ contains
       do iel = 1, ncel
         if (imeteo.eq.0) then
           call atmstd(xyzcen(3,iel),pres(iel),dum,dum)
-        else
+        else if (imeteo.eq.1) then
           call intprf                                                      &
               ( nbmett, nbmetm,                                            &
                 ztmet , tmmet , phmet , xyzcen(3,iel) , ttcabs, pres(iel) )
+        else
+          pres(iel) = cpro_met_p(iel)
         endif
 
         ! FIXME compute real temperature in humid atmosphere in atphyv
@@ -474,7 +487,6 @@ contains
     imligp = vcopt%imligr
     iwarnp = vcopt%iwarni
     climgp = vcopt%climgr
-    extrap = vcopt%extrag
 
     ! homogeneous Neumann BCs for gradient computation
     allocate(local_coefa(nfabor))
@@ -499,7 +511,7 @@ contains
 
     call gradient_s                                                 &
    ( iifld  , imrgrp , inc    , iccocg , nswrgp ,imligp,            &
-     iwarnp , epsrgp , climgp , extrap ,                            &
+     iwarnp , epsrgp , climgp ,                                     &
      local_field     , local_coefa , local_coefb ,                  &
      grad1   )
 
@@ -514,7 +526,7 @@ contains
 
     call gradient_s                                                 &
    ( iifld  , imrgrp , inc    , iccocg , nswrgp ,imligp,            &
-     iwarnp , epsrgp , climgp , extrap ,                            &
+     iwarnp , epsrgp , climgp ,                                     &
      local_field     , local_coefa , local_coefb ,                  &
      grad2   )
 

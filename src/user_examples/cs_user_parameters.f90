@@ -150,7 +150,7 @@ ippmod(icolwc) = -1
 ! =================
 
 !        if = -1   module not activated
-!        if =  0   constant fraction of fuel Xsoot
+!        if =  0   constant fraction of soot
 !        if =  1   2 equations model of Moss et al.
 
 isoot = 0
@@ -225,16 +225,6 @@ ippmod(ieljou) = -1
 !        if = 2    electric potential and vector potential (hence 3D modelling)
 
 ippmod(ielarc) = -1
-
-! --- atmos: Atmospheric flows
-! ==========
-
-!        if = -1   module not activated
-!        if = 0    standard modelling
-!        if = 1    dry atmosphere
-!        if = 2    humid atmosphere (experimental)
-
-ippmod(iatmos) = -1
 
 ! --- aeros: Cooling towers
 ! ==========
@@ -311,12 +301,6 @@ if (ippmod(icfuel).ge.0) then
   ficfpp = 'dp_FUE'
 endif
 
-! Atmospheric flows
-
-if (ippmod(iatmos).ge.0) then
-  ficmet = 'meteo'
-endif
-
 if (ippmod(igmix).ge.0) then
   ! Specific condensation modelling
 
@@ -345,6 +329,12 @@ end subroutine usppmo
 
 !> \brief User subroutine for the input of additional user parameters.
 !
+!>  This subroutine allows setting parameters
+!>  which do not already appear in the other subroutines of this file.
+!>
+!>  It is possible to add or remove parameters.
+!>  The number of physical properties and variables is known here.
+!>
 !-------------------------------------------------------------------------------
 ! Arguments
 !______________________________________________________________________________.
@@ -379,6 +369,11 @@ use field
 use cavitation
 use post
 use rotation
+use atincl
+use atsoil
+use atchem
+use atimbr
+use sshaerosol
 use cs_c_bindings
 
 !===============================================================================
@@ -396,14 +391,6 @@ integer       ii, jj, ivar, kscmin, kscmax, keydri, kbfid, kccmin, kccmax
 integer       f_id, idim1, itycat, ityloc, iscdri, iscal, ifcvsl, b_f_id
 
 type(var_cal_opt) :: vcopt
-
-!===============================================================================
-
-!>  This subroutine allows setting parameters
-!>  which do not already appear in the other subroutines of this file.
-!>
-!>  It is possible to add or remove parameters.
-!>  The number of physical properties and variables is known here.
 
 !===============================================================================
 
@@ -618,6 +605,59 @@ epalim = 1.d-5
 
 !< [usipsu]
 
+!===============================================================================
+! Initialize non-standard calculation options for the atmospheric version.
+!===============================================================================
+
+!< [usati1]
+!  -----------------------------------------------------------------------------
+!  Atmospheric imbrication on large scale meteo (atimbr module)
+!  -----------------------------------------------------------------------------
+!
+! --------------------------------------------------------------
+! activation flag
+! --------------------------------------------------------------
+imbrication_flag    = .false.
+imbrication_verbose = .false.
+
+! ------------------------------------------------------------------------------
+! flags for activating the cressman interpolation for the boundary conditions
+! ------------------------------------------------------------------------------
+cressman_u     = .true.
+cressman_v     = .true.
+cressman_tke   = .true.
+cressman_eps   = .true.
+cressman_theta = .true.
+cressman_qw    = .true.
+cressman_nc    = .true.
+
+! --------------------------------------------------------------
+! numerical parameters for the cressman interpolation formulas
+! --------------------------------------------------------------
+horizontal_influence_radius = 8500.d0
+vertical_influence_radius = 100.d0
+
+! --------------------------------------------------------------
+
+! ifilechemistry: choice to read (=1,2,3,4, according to the scheme)
+! or not (0) a concentration profile file
+! if ichemistry>0 ifilechemistry is automaticaly set to ichemistry
+ifilechemistry = 0
+
+! isepchemistry: splitted (=1) or semi-coupled (=2, pu-sun)
+! resolution of chemistry.
+! Splitted (=1) mandatory for aerosols.
+! Semi-coupled (=2) by default.
+isepchemistry = 1
+
+! dtchemmax: maximal time step (s) for chemistry resolution
+dtchemmax = 10.0d0
+
+! computation / storage of downward and upward infrared radiative fluxes
+irdu = 1
+
+!< [usati1]
+
 !----
 ! Formats
 !----
@@ -748,174 +788,6 @@ endif
 
 return
 end subroutine usipes
-
-
-!===============================================================================
-
-
-!> \brief Initialize non-standard calculation options for the atmospheric version.
-
-!-------------------------------------------------------------------------------
-! Arguments
-!______________________________________________________________________________.
-!  mode           name          role                                           !
-!______________________________________________________________________________!
-
-subroutine usati1
-
-!===============================================================================
-! Module files
-!===============================================================================
-
-use paramx
-use dimens
-use numvar
-use optcal
-use cstphy
-use entsor
-use cstnum
-use ppppar
-use atincl
-use atsoil
-use atchem
-use atimbr
-use sshaerosol
-use cs_c_bindings
-
-!===============================================================================
-
-implicit none
-
-!===============================================================================
-
-!< [usati1]
-
-!===============================================================================
-! 1. Example of calculation options to modify
-!===============================================================================
-
-!!! Reading the meteo file
-
-imeteo = 1
-
-! Automatique open boundary conditions
-iatmst = 1
-
-!!! For radiative model or chemistry
-
-! Time of the simulation
-!  syear  --> starting year
-!  squant --> starting quantile
-!  shour  --> starting hour (UTC)
-!  smin   --> starting minute
-!  ssec   --> starting second
-
-syear = 2019
-squant = 1
-shour = 1
-smin = 0
-ssec = 0.d0
-
-! Geographic position
-! xlon --> longitude of the domain origin
-! xlat --> latitude of the domain origin
-
-xlon = 0.d0
-xlat = 45.d0
-
-!  -----------------------------------------------------------------------------
-!  Atmospheric imbrication on large scale meteo (atimbr module)
-!  -----------------------------------------------------------------------------
-!
-! --------------------------------------------------------------
-! activation flag
-! --------------------------------------------------------------
-imbrication_flag    = .false.
-imbrication_verbose = .false.
-
-! ------------------------------------------------------------------------------
-! flags for activating the cressman interpolation for the boundary conditions
-! ------------------------------------------------------------------------------
-cressman_u     = .true.
-cressman_v     = .true.
-cressman_tke   = .true.
-cressman_eps   = .true.
-cressman_theta = .true.
-cressman_qw    = .true.
-cressman_nc    = .true.
-
-! --------------------------------------------------------------
-! numerical parameters for the cressman interpolation formulas
-! --------------------------------------------------------------
-horizontal_influence_radius = 8500.d0
-vertical_influence_radius = 100.d0
-
-! --------------------------------------------------------------
-
-!!! Gaseous chemistry
-
-! ichemistry: choice of chemistry resolution scheme
-!0 --> no atmospheric chemistry
-!1 --> quasi steady equilibrium NOx scheme with 4 species and 5 reactions
-!2 --> scheme with 20 species and 34 reactions
-!3 --> scheme CB05 with 52 species and 155 reactions
-!4 --> user defined schema
-!      for ichemistry = 4, a SPACK file must be provided using
-!        call atmo_chemistry_set_spack_file_name("species.spack.dat")
-!      the following sources generated by SPACK should be included in the SRC folder
-!        kinetic.f90, fexchem.f90, jacdchemdc.f90, rates.f90, dratedc.f90
-!        dimensions.f90, LU_decompose.f90, LU_solve.f90
-ichemistry = 0
-
-! ifilechemistry: choice to read (=1,2,3,4, according to the scheme)
-! or not (0) a concentration profile file
-! if ichemistry>0 ifilechemistry is automaticaly set to ichemistry
-ifilechemistry = 0
-
-! isepchemistry: splitted (=1) or semi-coupled (=2, pu-sun)
-! resolution of chemistry.
-! Splitted (=1) mandatory for aerosols.
-! Semi-coupled (=2) by default.
-isepchemistry = 1
-
-! photolysis: inclusion (true) or not (false) of photolysis reactions
-! warning: photolysis is not compatible with space-variable time step
-photolysis = .true.
-
-! dtchemmax: maximal time step (s) for chemistry resolution
-dtchemmax = 10.0d0
-
-!!! Aerosol chemistry
-
-! iaerosol: flag to activate aerosol chemistry
-!   iaerosol = CS_ATMO_AEROSOL_OFF : aerosol chemistry deactivated, default
-!   iaerosol = CS_ATMO_AEROSOL_SSH : ichemistry automatically set to 4
-!     External library SSH-aerosol is used
-!     Corresponding SPACK files must be provided
-!     The SSH namelist file can be specified using
-!       call atmo_chemistry_set_aerosol_file_name("namelist_coag.ssh")
-!       if no namelist file is specified, "namelist.ssh" is used
-iaerosol = CS_ATMO_AEROSOL_SSH
-
-! nogaseouschemistry: flag to freeze gaseous chemistry
-!   if nogaseouschemistry = false, gaseous chemistry is activated (default)
-!   if nogaseouschemistry = true, gaseous chemistry is frozen
-nogaseouschemistry = .false.
-
-! computation / storage of downward and upward infrared radiative fluxes
-irdu = 1
-! computation / storage of downward and upward solar radiative fluxes
-soldu = 1
-
-!< [usati1]
-
-!----
-! End
-!----
-
-return
-end subroutine usati1
-
 
 !===============================================================================
 ! Purpose:
@@ -1177,12 +1049,12 @@ implicit none
 ivivar = 0
 
 ! --> Reference molecular thermal conductivity
-!       visls0 = lambda0  (molecular thermal conductivity, W/(m K))
+!       visls0 = lambda0 (molecular thermal conductivity, W/(m K))
 
-!       WARNING: visls0 must be strictly positive
-!         (set a realistic value here even if conductivity is variable)
+!     Reference conductivity must be strictly positive
+!      (set a realistic value here even if conductivity is variable)
 
-visls0(itempk) = 3.d-2
+call field_set_key_double(ivarfl(isca(itempk)), kvisl0, 3.d-2)
 
 !       If the molecular thermal conductivity is variable, its values
 !         must be provided in the user subroutine 'cs_user_physical_properties'

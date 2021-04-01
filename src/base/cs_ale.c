@@ -229,11 +229,11 @@ _free_surface(const cs_domain_t  *domain,
       /* g . (x_f - x_N) S_fN  */
       cs_real_t dz_fn = cs_math_3_dot_product(normal, v_cog);
 
-      /* v1 is heigher than x_f */
+      /* v1 is higher than x_f */
       if (dz_fn > 0.)
         _is_loc_min[v_id] = 0.; /* not a min */
 
-      /* x_f is heigher than v1 */
+      /* x_f is higher than v1 */
       if (dz_fn < 0.)
         _is_loc_max[v_id] = 0.; /* not a max */
 
@@ -356,14 +356,18 @@ _free_surface(const cs_domain_t  *domain,
       cs_real_t dz_fn = cs_math_3_dot_product(normal, v1_cog);
 
       for (int i = 0; i < 3; i++)
-        _mesh_vel[v_id1][i] += (f_vel[i] + invdt * f_need_filter * dz_fn * normal[i]) * portion_surf;
+        _mesh_vel[v_id1][i] +=   (  f_vel[i]
+                                  + invdt * f_need_filter * dz_fn * normal[i])
+                               * portion_surf;
     }
 
   } /* Loop on selected border faces */
 
   cs_var_cal_opt_t var_cal_opt;
-  cs_field_get_key_struct(CS_F_(mesh_u), cs_field_key_id("var_cal_opt"), &var_cal_opt);
-  if (var_cal_opt.iwarni >= 1) {
+  cs_field_get_key_struct(CS_F_(mesh_u),
+                          cs_field_key_id("var_cal_opt"),
+                          &var_cal_opt);
+  if (var_cal_opt.verbosity >= 1) {
     cs_parall_sum(1, CS_GNUM_TYPE, &_f_count_filter);
     cs_parall_sum(1, CS_GNUM_TYPE, &_f_n_elts);
     bft_printf("Free surface condition %d: %f percents of limited face\n",
@@ -828,6 +832,21 @@ _ale_solve_poisson_cdo(const cs_domain_t  *domain,
   /* Update the values of boundary mesh vertices */
   _update_bcs_free_surface(domain);
 
+  /* Compute the Poisson equation on the original mesh */
+  cs_real_3_t *vtx_coord = (cs_real_3_t *)m->vtx_coord;
+  cs_real_3_t *vtx_coord0 = (cs_real_3_t *)(cs_field_by_name("vtx_coord0")->val);
+  const cs_lnum_t n_vertices = m->n_vertices;
+  cs_mesh_quantities_t *mq = domain->mesh_quantities;
+
+  /* Back to original mesh */
+  for (cs_lnum_t v_id = 0; v_id < n_vertices; v_id++) {
+    for (cs_lnum_t idim = 0; idim < 3; idim++) {
+      vtx_coord[v_id][idim] = vtx_coord0[v_id][idim];
+    }
+  }
+
+  cs_ale_update_mesh_quantities(&(mq->min_vol), &(mq->max_vol), &(mq->tot_vol));
+
   if (cs_equation_uses_new_mechanism(eq))
     cs_equation_solve_steady_state(m, eq);
 
@@ -846,6 +865,16 @@ _ale_solve_poisson_cdo(const cs_domain_t  *domain,
   cs_real_3_t *disale = (cs_real_3_t *)(f_displ->val);
   cs_real_3_t *disala = (cs_real_3_t *)(f_displ->val_pre);
   cs_real_3_t *m_vel = (cs_real_3_t *)(cs_field_by_name("mesh_velocity")->val);
+
+  /* Back to mesh at time n */
+  for (cs_lnum_t v_id = 0; v_id < n_vertices; v_id++) {
+    for (cs_lnum_t idim = 0; idim < 3; idim++) {
+      vtx_coord[v_id][idim] = vtx_coord0[v_id][idim] + disale[v_id][idim];
+    }
+  }
+
+  cs_ale_update_mesh_quantities(&(mq->min_vol), &(mq->max_vol), &(mq->tot_vol));
+
 
   for (cs_lnum_t v = 0; v < m->n_vertices; v++) {
     if (impale[v] == 0) {
@@ -918,7 +947,7 @@ _ale_solve_poisson_legacy(const cs_domain_t *domain,
   cs_var_cal_opt_t var_cal_opt;
   cs_field_get_key_struct(CS_F_(mesh_u), key_cal_opt_id, &var_cal_opt);
 
-  if (var_cal_opt.iwarni >= 1)
+  if (var_cal_opt.verbosity >= 1)
     bft_printf("\n   ** SOLVING MESH VELOCITY\n"
                "      ---------------------\n");
 
@@ -970,7 +999,7 @@ _ale_solve_poisson_legacy(const cs_domain_t *domain,
 
   /* 2. Solving of the mesh velocity equation */
 
-  if (var_cal_opt.iwarni >= 1)
+  if (var_cal_opt.verbosity >= 1)
     bft_printf("\n\n           SOLVING VARIABLE %s\n\n",
                CS_F_(mesh_u)->name);
 
@@ -1041,7 +1070,7 @@ _ale_solve_poisson_legacy(const cs_domain_t *domain,
                                      NULL, /* weighb */
                                      0,    /* icvflv */
                                      NULL, /* icvfli */
-                                     (const cs_real_33_t *)fimp,
+                                     (cs_real_33_t *)fimp,
                                      smbr,
                                      mshvel,
                                      NULL); /* eswork */
@@ -1360,13 +1389,11 @@ cs_ale_project_displacement(const int           ale_bc_type[],
  * \brief  Update mesh in the ALE framework.
  *
  * \param[in]       itrale        number of the current ALE iteration
- * \param[in]       xyzno0        nodes coordinates of the initial mesh
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_ale_update_mesh(const int           itrale,
-                   const cs_real_3_t  *xyzno0)
+cs_ale_update_mesh(const int           itrale)
 {
   const cs_mesh_t *m = cs_glob_mesh;
   const int  ndim = m->dim;
@@ -1382,7 +1409,7 @@ cs_ale_update_mesh(const int           itrale,
   cs_var_cal_opt_t var_cal_opt;
   cs_field_get_key_struct(CS_F_(mesh_u), key_cal_opt_id, &var_cal_opt);
 
-  if (var_cal_opt.iwarni >= 1)
+  if (var_cal_opt.verbosity >= 1)
     bft_printf("\n ---------------------------------------------------"
                "---------\n\n"
                "  Update mesh (ALE)\n"
@@ -1392,10 +1419,11 @@ cs_ale_update_mesh(const int           itrale,
   cs_field_t  *f_displ = cs_field_by_name("mesh_displacement");
   cs_real_3_t *disale = (cs_real_3_t *)(f_displ->val);
   cs_real_3_t *disala = (cs_real_3_t *)(f_displ->val_pre);
+  cs_real_3_t *xyzno0 = (cs_real_3_t *)(cs_field_by_name("vtx_coord0")->val);
 
   /* Update geometry */
-  for (int v_id = 0; v_id < n_vertices; v_id++) {
-    for (int idim = 0; idim < ndim; idim++) {
+  for (cs_lnum_t v_id = 0; v_id < n_vertices; v_id++) {
+    for (cs_lnum_t idim = 0; idim < ndim; idim++) {
       vtx_coord[v_id][idim] = xyzno0[v_id][idim] + disale[v_id][idim];
       disala[v_id][idim] = vtx_coord[v_id][idim] - xyzno0[v_id][idim];
     }
@@ -1559,7 +1587,7 @@ cs_ale_init_setup(cs_domain_t   *domain)
   cs_domain_set_output_param(domain,
                              -1, /* restart frequency: Only at the end */
                              cs_glob_log_frequency,
-                             var_cal_opt.iwarni);
+                             var_cal_opt.verbosity);
 
   cs_equation_param_t  *eqp = cs_equation_param_by_name("mesh_velocity");
 

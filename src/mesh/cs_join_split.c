@@ -1357,7 +1357,7 @@ _split_face(cs_lnum_t               fid,
 
   builder->face_index[block_id+1] = builder->face_index[block_id] + n_subfaces;
 
-  assert(builder->face_index[block_id+1] = subface_shift);
+  assert(builder->face_index[block_id+1] == subface_shift);
 
   /* Returns pointers */
 
@@ -1910,6 +1910,7 @@ cs_join_split_faces(cs_join_param_t          param,
   for (fid = 0, block_id = 0; fid < n_init_faces; fid++) {
 
     int  block_rank = (w->face_gnum[fid] - 1)/(cs_gnum_t)(bi.block_size);
+    block_rank *= bi.rank_step;
 
     if (block_rank == local_rank) { /* This face is a "main" face for the
                                        local rank */

@@ -74,7 +74,6 @@ class Zone(object):
         else:
             raise ValueError("Unknown type zone")
 
-
     def __init__(self, typeZone, case = None, label = None, codeNumber = None,
                  localization = None, nature = None):
         """
@@ -103,56 +102,50 @@ class Zone(object):
         else:
             self._nature = self.defaultValues()['nature']
 
-
     def _initNatureList(self, case):
         self._natureList = []
         self._natureDict = {}
         self.case = case
 
-
     def setLabel(self, text):
         if Model().isStr(text):
             self._label = text
 
-
     def getLabel(self):
         return self._label
-
 
     def setLocalization(self, text):
         if Model().isStr(text):
             self._localization = text
 
-
     def getLocalization(self):
         return self._localization
-
 
     def setCodeNumber(self, number):
         if Model().isPositiveInt(number):
             self._codeNumber = number
 
-
     def getCodeNumber(self):
         return self._codeNumber
-
 
     def setNature(self, text):
         if Model().isInList(text, self._natureList):
             self._nature = text
 
-
     def getNature(self):
         return self._nature
-
 
     def getNatureList(self):
         return self._natureList
 
+    def isNatureActivated(self, text):
+        if text in self._nature.keys():
+            return {"on": True, "off": False}[self._nature[text]]
+        else:
+            return False
 
     def getModel2ViewDictionary(self):
         return self._natureDict
-
 
     def defaultValues(self):
         dico = {}
@@ -299,16 +292,23 @@ class VolumicZone(Zone):
         dico = Zone.defaultValues(self)
         dico['label'] = 'Zone_'
         dico['nature'] = {}
-        dico['nature']['initialization']       = "on"
-        dico['nature']['head_losses']          = "off"
-        dico['nature']['porosity']             = "off"
+        dico['nature']['initialization'] = "off"
+        dico['nature']['head_losses'] = "off"
+        dico['nature']['porosity'] = "off"
         dico['nature']['momentum_source_term'] = "off"
-        dico['nature']['mass_source_term']     = "off"
-        dico['nature']['thermal_source_term']  = "off"
-        dico['nature']['scalar_source_term']   = "off"
-        dico['nature']['groundwater_law']      = "off"
+        dico['nature']['thermal_source_term'] = "off"
+        dico['nature']['scalar_source_term'] = "off"
+        dico['nature']['groundwater_law'] = "off"
         return dico
 
+    def isNatureActivated(self, text):
+        if text == "source_term":
+            status = False
+            for source_term_type in ["momentum", "thermal", "scalar"]:
+                status = status or super().isNatureActivated(source_term_type + "_source_term")
+            return status
+        else:
+            return super().isNatureActivated(text)
 
     def tr(self, text):
         """
@@ -354,6 +354,14 @@ class LocalizationModel(object):
 
         return locals
 
+    def getSortedZoneLabels(self):
+        zone_labels = self.getLabelsZonesList()
+        zone_ids = self.getCodeNumbersList()
+        zone_ids = map(int, zone_ids)
+        sorted_labels = [None for i in range(len(zone_labels))]
+        for unsorted_id, sorted_id in enumerate(zone_ids):
+            sorted_labels[sorted_id - 1] = zone_labels[unsorted_id]
+        return sorted_labels
 
     def getLabelsZonesList(self):
         """
@@ -365,7 +373,6 @@ class LocalizationModel(object):
             labels.append(zone.getLabel())
 
         return labels
-
 
     def getCodeNumbersList(self):
         """
@@ -441,7 +448,6 @@ class LocalizationModel(object):
         labels = self.getLabelsZonesList()
         Model().isInList(label, labels)
 
-
     def setNature(self, label, nature):
         """
         Define a new nature number for the current zone (zone.getLabel == label)
@@ -449,13 +455,25 @@ class LocalizationModel(object):
         # Set nature: nothing here, see other setNature reimplementation methods
         pass
 
+    def selectZone(self, value, criterium):
+        """ Return first zone satisfying criterium """
+        zones = self.getZones()
+        for zone in zones:
+            if criterium == "label":
+                if zone.getLabel() == value:
+                    return zone
+            elif criterium == "codeNumber":
+                if zone.getCodeNumber() == value:
+                    return zone
+            else:
+                raise ValueError
 
-    def addZone(self, newZone = None):
+    def addZone(self, newZone=None):
         """
         Add a new zone. Management of default values.
         """
         if newZone == None:
-            newZone = Zone(self._typeZone, case = self.case)
+            newZone = Zone(self._typeZone, case=self.case)
 
         zones = self.getZones()
 
@@ -599,14 +617,13 @@ class VolumicLocalizationModel(LocalizationModel):
             localization = str(node.xmlGetTextNode())
             nature = self.getNature(label)
             zone = Zone('VolumicZone',
-                        case = self.case,
-                        label = label,
-                        codeNumber = codeNumber,
-                        localization = localization,
-                        nature = nature)
+                        case=self.case,
+                        label=label,
+                        codeNumber=codeNumber,
+                        localization=localization,
+                        nature=nature)
             zones.append(zone)
         return zones
-
 
     @Variables.noUndo
     def getCodeNumberOfZoneLabel(self, label):
@@ -720,7 +737,7 @@ class VolumicLocalizationModel(LocalizationModel):
         # update data in the entire case
         lst = self.__natureOptions
         lst.append('initial_value')
-        lst.append('head_loss')
+        lst.append('head_losses')
         for tag in lst:
             for n in self.case.xmlGetNodeList(tag, zone=old_zone.getCodeNumber()):
                 n['zone'] = newCodeNumber

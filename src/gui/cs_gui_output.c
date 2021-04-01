@@ -52,7 +52,6 @@
 #include "cs_boundary_zone.h"
 #include "cs_gui.h"
 #include "cs_gui_util.h"
-#include "cs_gui_variables.h"
 #include "cs_log.h"
 #include "cs_math.h"
 #include "cs_mesh_location.h"
@@ -479,6 +478,7 @@ _define_profiles(void)
         output_frequency = v[0];
       else
         output_frequency = 1;
+      output_at_end = true;  /* Debatable, but consistent with v6.0 behavior */
     }
     else if (cs_gui_strcmp(output_type, "end")) {
       output_at_end = true;
@@ -706,11 +706,14 @@ cs_gui_output(void)
     if (f->type & CS_FIELD_VARIABLE)
       _field_post("variable", f->id);
     else if (   (f->type & CS_FIELD_PROPERTY)
-             || (f->type & CS_FIELD_POSTPROCESS))
+             || (f->type & CS_FIELD_POSTPROCESS)) {
+      if (moment_id != NULL) {
+        if (moment_id[f_id] > -1) {
+          _field_post("time_average", f->id);
+          continue;
+        }
+      }
       _field_post("property", f->id);
-    else if (moment_id != NULL) {
-      if (moment_id[f_id] > -1)
-        _field_post("time_average", f->id);
     }
   }
 

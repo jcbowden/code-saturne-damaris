@@ -71,7 +71,7 @@ integer          iviext
 
 logical          is_set
 
-double precision relxsp, clvfmn, clvfmx
+double precision relxsp, clvfmn, clvfmx, visls_0, visls_cmp
 
 character(len=80) :: name
 
@@ -848,9 +848,6 @@ do iscal = 1, nscal
   endif
 enddo
 
-
-! ---> VISLS0
-
 ! For scalars which are not variances, define the reference diffusivity
 
 ! Pour les variances de fluctuations, les valeurs du tableau
@@ -859,19 +856,22 @@ enddo
 ! scalaire associe.
 
 if (iscalt.gt.0) then
-  if (visls0(iscalt).lt.-grand) then
+  call field_get_key_double(ivarfl(isca(iscalt)), kvisl0, visls_0)
+  if (visls_0.lt.-grand) then
     if (itherm .eq. 1) then
-      visls0(iscalt) = viscl0
+      visls_0 = viscl0
     else if (itherm .eq. 2) then
-      visls0(iscalt) = viscl0 / cp0
+      visls_0 = viscl0 / cp0
     endif
+    call field_set_key_double(ivarfl(isca(iscalt)), kvisl0, visls_0)
   endif
 endif
 
 if (nscaus.gt.0) then
   do jj = 1, nscaus
-    if (iscavr(jj).le.0 .and. visls0(jj).lt.-grand) then
-      visls0(jj) = viscl0
+    call field_get_key_double(ivarfl(isca(jj)), kvisl0, visls_0)
+    if (iscavr(jj).le.0 .and. visls_0.lt.-grand) then
+      call field_set_key_double(ivarfl(isca(jj)), kvisl0, viscl0)
     endif
   enddo
 endif
@@ -880,13 +880,11 @@ if (nscal.gt.0) then
   do ii = 1, nscal
     iscal = iscavr(ii)
     if (iscal.gt.0.and.iscal.le.nscal)then
-      if (visls0(ii).lt.-grand) then
-        visls0(ii) = visls0(iscal)
-      else
-        write(nfecra,1071)ii,                                     &
-          ii,iscal,ii,iscal,                                      &
-          ii,ii,iscal,visls0(iscal)
-        iok = iok + 1
+      call field_get_key_double(ivarfl(isca(ii)), kvisl0, visls_cmp)
+      call field_get_key_double(ivarfl(isca(iscal)), kvisl0, visls_0)
+      call field_set_key_double(ivarfl(isca(ii)), kvisl0, visls_0)
+      if (visls_cmp.gt.-grand) then
+        write(nfecra,1071) ii, iscal, ii, iscal, visls_0
       endif
     endif
   enddo
@@ -988,6 +986,19 @@ if (ippmod(idarcy).eq.1) then
   endif
 
 endif
+
+! Set iswdyn to 2 by default if not modified for pure diffusion equations
+do f_id = 0, nfld - 1
+  call field_get_type(f_id, f_type)
+  ! Is the field of type FIELD_VARIABLE?
+  if (iand(f_type, FIELD_VARIABLE).eq.FIELD_VARIABLE) then
+    call field_get_key_struct_var_cal_opt(f_id, vcopt)
+    if (vcopt%iswdyn.eq.-1.and. vcopt%iconv.eq.0) then
+      vcopt%iswdyn = 2
+      call field_set_key_struct_var_cal_opt(f_id, vcopt)
+    endif
+  endif
+enddo
 
 !===============================================================================
 ! 5. ELEMENTS DE albase
@@ -1133,21 +1144,16 @@ endif
 '@',                                                            /,&
 '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',/,&
 '@',                                                            /,&
-'@ @@ WARNING: ABORT IN THE DATA SPECIFICATION',                /,&
+'@ @@ WARNING:       IN THE DATA SPECIFICATION',                /,&
 '@    ========',                                                /,&
-'@    SCALAR ',i10,   ' DO NOT MODIFY THE DIFFUSIVITY,'         /,&
 '@',                                                            /,&
 '@  The scalar ',i10,   ' is the fluctuations variance',        /,&
 '@    of the scalar ',i10,                                      /,&
-'@                             (iscavr(',i10,   ') = ',i10,     /,&
-'@  The diffusivity VISLS0(',i10,   ') of the scalar ',i10,     /,&
+'@',                                                            /,&
+'@  The diffusivity_ref value of the scalar ', i10,             /,&
 '@    must not be set:',                                        /,&
-'@    it will be automatically set equal to the scalar',        /,&
-'@    diffusivity ',i10,   ' i.e. ',e14.5,                      /,&
-'@',                                                            /,&
-'@  The calculation will not be run.',                          /,&
-'@',                                                            /,&
-'@  Check cs_user_parameters.f90',                              /,&
+'@    it is automatically set equal to the scalar',             /,&
+'@    diffusivity ', i10,   ' i.e. ',e14.5,                     /,&
 '@',                                                            /,&
 '@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@',/,&
 '@',                                                            /)

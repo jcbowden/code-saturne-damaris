@@ -45,12 +45,7 @@ endif
 
 SUBDIRS = . $(PLE) $(PREPRO) src $(SALOME) $(DOCS) $(GUI) $(TSTS) $(NEPTUNE_CFD)
 
-AUX_DIST = \
-m4/libtool.m4 \
-m4/lt~obsolete.m4 \
-m4/ltoptions.m4 \
-m4/ltsugar.m4 \
-m4/ltversion.m4
+AUX_DIST =
 
 MAINTAINERCLEANFILES = \
 $(AUX_DIST) \
@@ -74,7 +69,6 @@ install_saturne.py \
 INSTALL.md \
 NEWS.md \
 README.md \
-extras/FMI/README.md \
 QUALITY_ASSURANCE \
 build-aux/catalyst \
 build-aux/catalyst-5.6 \
@@ -90,34 +84,12 @@ sbin/bootstrap \
 sbin/clean \
 sbin/rmb \
 config/cs_auto_flags.sh \
-config/code_saturne_build.cfg.in.in \
-m4/cs_blas.m4 \
-m4/cs_catalyst.m4 \
-m4/cs_ccm.m4 \
-m4/cs_cgns.m4 \
-m4/cs_coolprop.m4 \
-m4/cs_docs.m4 \
-m4/cs_eos.m4 \
-m4/cs_fortran.m4 \
-m4/cs_freesteam.m4 \
-m4/cs_hdf5.m4 \
-m4/cs_med.m4 \
-m4/cs_medcoupling.m4 \
-m4/cs_melissa.m4 \
-m4/cs_metis.m4 \
-m4/cs_modules.m4 \
-m4/cs_mpi.m4 \
-m4/cs_petsc.m4 \
-m4/cs_ple.m4 \
-m4/cs_salome.m4 \
-m4/cs_scotch.m4 \
-m4/cs_damaris.m4 \
-m4/cs_zlib.m4
+config/code_saturne_build.cfg.in.in
 
 # One adds several sub-directories with a dist-hook.
 # The reason for this trick is that
 # the number of extra files or patches can grow and change a lot.
-EXTRA_DIST += examples extras patches
+EXTRA_DIST += examples extras m4 patches
 
 nodist_pkginclude_HEADERS = \
 cs_config.h \
@@ -300,6 +272,7 @@ bin/cs_control.py \
 bin/cs_create.py \
 bin/cs_debug_wrapper.py \
 bin/cs_exec_environment.py \
+bin/cs_parametric_study.py \
 bin/cs_studymanager_gui.py \
 bin/cs_trackcvg.py \
 bin/cs_gui.py \
@@ -323,7 +296,8 @@ bin/studymanager/cs_studymanager_parser.py \
 bin/studymanager/cs_studymanager_study.py \
 bin/studymanager/cs_studymanager_texmaker.py \
 bin/studymanager/cs_studymanager_pathes_model.py \
-bin/studymanager/cs_studymanager_xml_init.py
+bin/studymanager/cs_studymanager_xml_init.py \
+bin/studymanager/cs_studymanager_graph.py
 
 modeldir = $(pkgpythondir)/model
 model_PYTHON = \
@@ -412,7 +386,6 @@ bin/model/XMLvariables.py
 salomesysconfdir = ${sysconfdir}/salome
 
 dist_pkgdata_DATA = \
-bin/cs_user_scripts.py \
 COPYING
 
 dist_pkgdata_SCRIPTS = \
@@ -421,19 +394,22 @@ bin/runcase_mpi_rank
 # Install thermochemistry and other data files
 
 nobase_dist_pkgdata_DATA = \
-data/thch/dp_C3P \
-data/thch/dp_C3PSJ \
-data/thch/dp_C4P \
-data/thch/dp_ELE \
-data/thch/dp_FUE \
+data/thch/dp_C3P_auto \
 data/thch/dp_radiat_ADF50 \
 data/thch/dp_radiat_ADF8 \
+data/thch/dp_radiat_MFS.tar.xz \
 data/thch/dp_radiat_Planck_CO2 \
 data/thch/dp_radiat_Planck_H2O \
 data/thch/dp_radiat_wave \
-data/thch/dp_transformers \
 data/thch/JANAF \
-data/thch/meteo \
+data/user/cs_user_scripts.py \
+data/user/dp_C3P \
+data/user/dp_C3PSJ \
+data/user/dp_C4P \
+data/user/dp_ELE \
+data/user/dp_FUE \
+data/user/dp_transformers \
+data/user/meteo \
 data/setup.xml
 
 # Install batch cards for cluster management
@@ -537,6 +513,12 @@ install-shortcut:
 		echo "'$${DESKTOPPATH}' is not a folder" ; \
 		exit 1 ; \
 	fi ; \
+	if test "${shortcut-solver}" != "" ; then \
+	  DESKTOPSOLVER="${shortcut-solver}" ; \
+	else \
+	  DESKTOPSOLVER=code_saturne ; \
+	fi ; \
 	cp "$(top_srcdir)/extras/code_saturne.desktop.template" "$${DESKTOPPATH}/code_saturne_$(VERSION).desktop"; \
 	sed -i -e 's|CSPATH|$(prefix)|g' $${DESKTOPPATH}/code_saturne_$(VERSION).desktop; \
 	sed -i -e 's|CSVERSION|$(VERSION)|g' $${DESKTOPPATH}/code_saturne_$(VERSION).desktop ;
+	sed -i -e 's|DSOLVER|'$${DESKTOPSOLVER}'|g' $${DESKTOPPATH}/code_saturne_$(VERSION).desktop ;

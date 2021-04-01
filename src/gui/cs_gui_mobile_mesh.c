@@ -54,7 +54,6 @@
 #include "cs_field_pointer.h"
 #include "cs_gui.h"
 #include "cs_gui_util.h"
-#include "cs_gui_variables.h"
 #include "cs_gui_boundary_conditions.h"
 #include "cs_mesh.h"
 #include "cs_prototypes.h"
@@ -883,7 +882,8 @@ cs_gui_mesh_viscosity(void)
  *         structure storing the ALE boundaries (New mechanism used in CDO)
  *
  * \param[in, out]  domain   pointer to a \ref cs_domain_t structure
- *----------------------------------------------------------------------------*/
+ */
+/*----------------------------------------------------------------------------*/
 
 void
 cs_gui_mobile_mesh_get_boundaries(cs_domain_t  *domain)
@@ -934,7 +934,8 @@ cs_gui_mobile_mesh_get_boundaries(cs_domain_t  *domain)
  * \param[in]  label boundary condition label
  *
  * \return a pointer to an array of cs_real_t values
- *----------------------------------------------------------------------------*/
+ */
+/*----------------------------------------------------------------------------*/
 
 cs_real_t *
 cs_gui_mobile_mesh_get_fixed_velocity(const char    *label)

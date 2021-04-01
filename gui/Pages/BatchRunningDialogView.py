@@ -393,7 +393,7 @@ class BatchRunningDialogView(QDialog, Ui_BatchRunningDialogForm):
         self.have_mpi = self.jmdl.have_mpi
         self.have_openmp = self.jmdl.have_openmp
 
-        self.job_name = self.jmdl.batch.params['job_nodes']
+        self.job_name = self.jmdl.batch.params['job_name']
         self.job_nodes = self.jmdl.batch.params['job_nodes']
         self.job_ppn  = self.jmdl.batch.params['job_ppn']
         self.job_procs = self.jmdl.batch.params['job_procs']
@@ -718,7 +718,7 @@ class BatchRunningDialogView(QDialog, Ui_BatchRunningDialogForm):
         for k in self.jmdl.job_dict:
             self.jmdl.job_dict[k] = self.job_dict[k]
 
-        self.jmdl.batch.params['job_nodes'] = self.job_name
+        self.jmdl.batch.params['job_name'] = self.job_name
         self.jmdl.batch.params['job_nodes'] = self.job_nodes
         self.jmdl.batch.params['job_ppn'] = self.job_ppn
         self.jmdl.batch.params['job_procs'] = self.job_procs
@@ -760,31 +760,6 @@ class BatchRunningDialogView(QDialog, Ui_BatchRunningDialogForm):
 
         prv_dir = os.getcwd()
         os.chdir(self.case['data_path'])
-
-        # Do we have a mesh ?
-
-        have_mesh = False
-        node_ecs = self.case.xmlGetNode('solution_domain')
-        if node_ecs.xmlGetNode('meshes_list'):
-            if node_ecs.xmlGetNode('meshes_list').xmlGetNodeList('mesh'):
-                have_mesh = True
-        if node_ecs.xmlGetNode('mesh_input', 'path'):
-            have_mesh = True
-        if not have_mesh:
-            title = self.tr("Warning")
-            msg   = self.tr("You have to select a mesh.\n\n")
-            QMessageBox.information(self, title, msg)
-            return
-
-        # Verify if boundary condition definitions exist
-        if self.case['run_type'] == 'standard':
-            bd = LocalizationModel('BoundaryZone', self.case)
-            if not bd.getZones():
-                if self.case['no_boundary_conditions'] == False:
-                    title = self.tr("Warning")
-                    msg   = self.tr("No boundary definition declared.\n\n")
-                    QMessageBox.warning(self, title, msg)
-                    self.case['no_boundary_conditions'] = True
 
         # Build command line
 

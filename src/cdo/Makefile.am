@@ -73,6 +73,7 @@ cs_cdo_local.h \
 cs_cdo_main.h \
 cs_cdo_quantities.h \
 cs_cdo_time.h \
+cs_cdo_turbulence.h \
 cs_cdofb_ac.h \
 cs_cdoeb_vecteq.h \
 cs_cdofb_monolithic.h \
@@ -145,11 +146,13 @@ cs_cdo_local.c \
 cs_cdo_main.c \
 cs_cdo_quantities.c \
 cs_cdo_time.c \
+cs_cdo_turbulence.c \
 cs_cdoeb_vecteq.c \
 cs_cdofb_monolithic.c \
 cs_cdofb_navsto.c \
 cs_cdofb_scaleq.c \
 cs_cdofb_vecteq.c \
+cs_cdofb_priv.c \
 cs_cdovb_scaleq.c \
 cs_cdovb_vecteq.c \
 cs_cdovcb_scaleq.c \

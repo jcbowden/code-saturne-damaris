@@ -80,13 +80,11 @@ void CS_PROCF (uicpi2, UICPI2) (double *const toxy,
  *
  * subroutine uiati1
  * *****************
- * integer         imeteo   <--   on/off index
  * char(*)         fmeteo   <--   meteo file name
  * int             len      <--   meteo file name destination string length
  *----------------------------------------------------------------------------*/
 
-void CS_PROCF (uiati1, UIATI1) (int           *imeteo,
-                                char          *fmeteo,
+void CS_PROCF (uiati1, UIATI1) (char          *fmeteo,
                                 int           *len
                                 CS_ARGF_SUPP_CHAINE);
 
@@ -223,15 +221,6 @@ cs_gui_elec_model_rec(void);
 
 const char *
 cs_gui_get_thermophysical_model(const char  *model_thermo);
-
-/*-----------------------------------------------------------------------------
- * Return 1 if a specific physics model is activated, 0 othewise.
- *
- * Updates the cs_glob_vars global structure.
- *----------------------------------------------------------------------------*/
-
-int
-cs_gui_get_activ_thermophysical_model(void);
 
 /*----------------------------------------------------------------------------*/
 

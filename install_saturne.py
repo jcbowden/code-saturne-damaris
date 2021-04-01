@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 #-------------------------------------------------------------------------------
 # Library modules import
@@ -7,7 +7,7 @@
 import sys
 
 if sys.version_info[:2] < (2,6):
-    sys.stderr.write("This script needs Python 2.6 at least\n")
+    sys.stderr.write("This script needs Python 3.4 at least\n")
 
 import platform
 
@@ -607,9 +607,9 @@ class Setup:
             Package(name="CGNS",
                     description="CFD General Notation System",
                     package="cgns",
-                    version="4.1.1",
-                    archive="CGNS-4.1.1.tar.gz",
-                    url="https://github.com/CGNS/CGNS/archive/v4.1.1.tar.gz")
+                    version="4.1.2",
+                    archive="CGNS-4.1.2.tar.gz",
+                    url="https://github.com/CGNS/CGNS/archive/v4.1.2.tar.gz")
 
         p = self.packages['cgns']
         p.config_opts = "-DCGNS_ENABLE_64BIT=ON -DCGNS_ENABLE_SCOPING=ON"

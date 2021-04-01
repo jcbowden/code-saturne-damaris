@@ -53,6 +53,16 @@ BEGIN_C_DECLS
  * Macro definitions
  *============================================================================*/
 
+/*
+ * Mesh modification type flags
+ */
+
+/*! Any type of mesh modification */
+#define CS_MESH_MODIFIED (1 << 0)
+
+/*! Mesh modification has changed mesh distribution balance */
+#define CS_MESH_MODIFIED_BALANCE (1 << 1)
+
 /*============================================================================
  * Type definitions
  *============================================================================*/
@@ -251,23 +261,6 @@ void CS_PROCF(synsca, SYNSCA)
  *----------------------------------------------------------------------------*/
 
 void CS_PROCF(synsce, SYNSCE)
-(
- cs_real_t  var[]
-);
-
-/*----------------------------------------------------------------------------
- * Update a scalar array in case of parallelism and/or periodicity,
- * ignoring periodicity of rotation
- *
- * Fortran interface:
- *
- * subroutine syncmp(var)
- * *****************
- *
- * var   : <-> : scalar array
- *----------------------------------------------------------------------------*/
-
-void CS_PROCF(syncmp, SYNCMP)
 (
  cs_real_t  var[]
 );

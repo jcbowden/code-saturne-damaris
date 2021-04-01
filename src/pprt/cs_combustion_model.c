@@ -61,8 +61,8 @@ BEGIN_C_DECLS
  *============================================================================*/
 
 /*!
-  \file cs_physical_model.c
-        Specific physical models selection.
+  \file cs_combustion_model.c
+        Combustion  model selection parameters.
 */
 
 /*----------------------------------------------------------------------------*/
@@ -95,6 +95,10 @@ cs_combustion_model_t
                                .rosoot = 0.},
                        .coal = {.nclacp = 0},
                        .fuel = {.nclafu = 0},
+                       .n_gas_el_comp = 0,
+                       .n_gas_species = 0,
+                       .n_atomic_species = 0,
+                       .n_reactions = 0,
                        .isoot = -1,
                        .ckabs0 = 0,
                        .xco2 = -1,
@@ -114,7 +118,11 @@ void
 cs_f_combustion_model_get_pointers(int  **isoot);
 
 void
-cs_f_ppthch_get_pointers(int     **iic,
+cs_f_ppthch_get_pointers(int     **ngaze,
+                         int     **ngazg,
+                         int     **nato,
+                         int     **nrgaz,
+                         int     **iic,
                          double  **wmole,
                          double  **wmolg,
                          double  **xco2,
@@ -130,7 +138,9 @@ cs_f_coincl_get_pointers(double  **coefeg,
 void
 cs_f_cpincl_get_pointers(int     **ico2,
                          int     **ih2o,
+                         int     **ncharb,
                          int     **nclacp,
+                         int     **nclpch,
                          int     **ichcor,
                          double  **xashch,
                          double  **diam20,
@@ -174,6 +184,9 @@ cs_f_combustion_model_get_pointers(int  **isoot)
  * enables mapping to Fortran global pointers.
  *
  * parameters:
+ *   ngaze  --> pointer to number of elementary species
+ *   ngazg  --> pointer to number of global species
+ *   nato   --> pointer to number of atomic species
  *   iic    --> pointer to rank of C in gas composition
  *   wmole  --> pointer to molar mass of elementary gas components
  *   wmolg  --> pointer to molar mass of global species
@@ -183,13 +196,22 @@ cs_f_combustion_model_get_pointers(int  **isoot)
  *----------------------------------------------------------------------------*/
 
 void
-cs_f_ppthch_get_pointers(int     **iic,
+cs_f_ppthch_get_pointers(int     **ngaze,
+                         int     **ngazg,
+                         int     **nato,
+                         int     **nrgaz,
+                         int     **iic,
                          double  **wmole,
                          double  **wmolg,
                          double  **xco2,
                          double  **xh2o,
                          double  **ckabs1)
 {
+  *ngaze  = &(cs_glob_combustion_model->n_gas_el_comp);
+  *ngazg  = &(cs_glob_combustion_model->n_gas_species);
+  *nato   = &(cs_glob_combustion_model->n_atomic_species);
+  *nrgaz  = &(cs_glob_combustion_model->n_reactions);
+
   *iic    = &(cs_glob_combustion_model->gas.iic);
   *wmole  = cs_glob_combustion_model->wmole;
   *wmolg  = cs_glob_combustion_model->gas.wmolg;
@@ -231,6 +253,7 @@ cs_f_coincl_get_pointers(double  **coefeg,
  *   ico2   --> pointer to cs_glob_combustion_model->ico2
  *   ih2o   --> pointer to cs_glob_combustion_model->ih2o
  *   nclacp --> pointer to cs_glob_combustion_model->coal.nclacp
+ *   nclacp --> pointer to cs_glob_combustion_model->coal.n_classes_per_coal
  *   ichcor --> pointer to cs_glob_combustion_model->coal.ichcor
  *   xashch --> pointer to cs_glob_combustion_model->coal.xashch
  *   diam20 --> pointer to cs_glob_combustion_model->coal.diam20
@@ -244,7 +267,9 @@ cs_f_coincl_get_pointers(double  **coefeg,
 void
 cs_f_cpincl_get_pointers(int     **ico2,
                          int     **ih2o,
+                         int     **ncharb,
                          int     **nclacp,
+                         int     **nclpch,
                          int     **ichcor,
                          double  **xashch,
                          double  **diam20,
@@ -256,7 +281,9 @@ cs_f_cpincl_get_pointers(int     **ico2,
 {
   *ico2   = &(cs_glob_combustion_model->ico2);
   *ih2o   = &(cs_glob_combustion_model->ih2o);
+  *ncharb = &(cs_glob_combustion_model->coal.n_coals);
   *nclacp = &(cs_glob_combustion_model->coal.nclacp);
+  *nclpch = &(cs_glob_combustion_model->coal.n_classes_per_coal);
   *ichcor = cs_glob_combustion_model->coal.ichcor;
   *xashch = cs_glob_combustion_model->coal.xashch;
   *diam20 = cs_glob_combustion_model->coal.diam20;

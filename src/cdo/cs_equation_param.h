@@ -130,7 +130,7 @@ BEGIN_C_DECLS
  * \def CS_EQUATION_ENFORCE_BY_CELLS
  * \brief Definition of a selection of DoFs to enforce using a cell selection
  *
- * \def CS_EQUATION_ENFORCE_BY_DOFs
+ * \def CS_EQUATION_ENFORCE_BY_DOFS
  * \brief Definition of a selection of DoFs
  *
  * \def CS_EQUATION_ENFORCE_BY_REFERENCE_VALUE
@@ -260,7 +260,7 @@ typedef struct {
    * (0: false / 1: true). Indeed, in such a case, the matrix for the general
    * advection/diffusion equation is singular. A slight shift in the diagonal
    * will make it invertible again.
-   * By default, \ref dircl is set to 1 for all the unknowns, except
+   * By default, \ref idircl is set to 1 for all the unknowns, except
    * \f$\overline{f}\f$ in the v2f model (whose equation already contain another
    * diagonal term).
    * \remark this code is defined automatically based on the
@@ -388,7 +388,8 @@ typedef struct {
    * - 0.5: second-order \n
    * For the pressure, \ref thetav is always 1. For  the other variables,
    * \ref thetav = 0.5 is used when the  second-order time scheme is activated
-   * (\ref ischtp = 2, standard for LES calculations), otherwise \ref thetav = 1.
+   * (\ref optcal::ischtp "ischtp = 2", standard for LES calculations),
+   * otherwise \ref thetav = 1.
    *
    * \var blencv
    * Proportion of second-order convective scheme (0 corresponds to an upwind
@@ -428,29 +429,20 @@ typedef struct {
    * \ref imligr > CS_GRADIENT_LIMIT_NONE.
    *
    * \var extrag
-   * For the pressure variable, extrapolation  coefficient of the gradients at
-   * the boundaries. It applies only to the Neumann condition areas.
-   * The only possible values of \ref extrag are:
-   * - 0: homogeneous Neumann calculated at first-order
-   * - 1: gradient extrapolation (gradient at the boundary equal to the gradient
-   *      in the neighbor cell), calculated to the second-order in the case of an
-   *      orthogonal mesh and to the first-order otherwise.
-   * \c extrag may allow to correct the spurious velocities that appear on
-   * horizontal walls when density is variable and there is gravity. It is
-   * strongly advised to keep \ref extrag = 0 for the variables apart from
-   * pressure. See also \ref cs_stokes_model_t::iphydr "iphydr". In practice,
-   * only values 0 and 1 are allowed.
+   * Removed option, has no effect.
 
    * \var relaxv
    * Relaxation coefficient for the associated variable. This relaxation
    * parameter is only useful for the pressure with the unsteady algorithm (so
    * as to improve the convergence in case of meshes of insufficient quality or
-   * of some turbulent models (k-epsilon, v2f, k-omega) and \ref ikecou = 0;
-   * if \ref ikecou = 1, \ref relaxv is ignored.\n
+   * of some turbulent models (k-epsilon, v2f, k-omega) and
+   * \ref cs_turb_rans_model_t::ikecou "ikecou" = 0; if
+   * \ref cs_turb_rans_model_t::ikecou "ikecou" = 1, \ref relaxv is ignored.\n
    * Default values are 0.7 for turbulent variables and 1. for pressure.
    * \ref relaxv also stores the value of the relaxation coefficient when using
-   * the steady algorithm, deduced from the value of \ref relxst (defaulting to
-   * \ref relaxv = 1. - \ref relxst).\n
+   * the steady algorithm, deduced from the value of
+   * \ref cs_time_step_options_t::relxst "relxst" (defaulting to
+   * \ref relaxv = 1. - relxst).\n
    * Used only for the pressure and for turbulent variables
    * (\f$ k-\epsilon \f$, v2f or \f$ k-\omega \f$ models without coupling) with
    * the unsteady algorithm. Always used with the steady algorithm.
@@ -637,6 +629,14 @@ typedef struct {
    * \var adv_scheme
    * Numerical scheme used for the discretization of the advection term
    *
+   * \var adv_strategy
+   * Strategy used to handle the advection term (please refer to \ref
+   * cs_param_advection_strategy_t)
+   *
+   * \var adv_extrapol
+   * Extrapolation used to estimate the advection field (please refer to \ref
+   * cs_param_advection_extrapol_t)
+   *
    * \var upwind_portion
    * Value between 0. and 1. (0: centered scheme, 1: pure upwind scheme)
    * Introduce a constant portion of upwinding in a centered scheme
@@ -655,11 +655,13 @@ typedef struct {
    * for instance or in the solidification module.
    */
 
-  cs_param_advection_form_t     adv_formulation;
-  cs_param_advection_scheme_t   adv_scheme;
-  cs_real_t                     upwind_portion;
-  cs_adv_field_t               *adv_field;
-  cs_property_t                *adv_scaling_property;
+  cs_param_advection_form_t        adv_formulation;
+  cs_param_advection_scheme_t      adv_scheme;
+  cs_param_advection_strategy_t    adv_strategy;
+  cs_param_advection_extrapol_t    adv_extrapol;
+  cs_real_t                        upwind_portion;
+  cs_adv_field_t                  *adv_field;
+  cs_property_t                   *adv_scaling_property;
 
   /*!
    * @}
@@ -700,6 +702,26 @@ typedef struct {
 
   int                           n_source_terms;
   cs_xdef_t                   **source_terms;
+
+  /*!
+   * @}
+   * @name Definition of the related volume mass injection
+   * The contribution of a volume mass injection to the algebraic system
+   * is always at right-hand side whatever is the choice of time scheme,
+   * and is defined in a manner similar to boundary conditions. For
+   * variables whose injection value matches the "ambient" value, no term
+   * needs to be added.
+   * @{
+   *
+   * \var n_volume_mass_injections
+   * Number of volume injections to consider.
+   *
+   * \var volume_mass_injections
+   * List of definitions of injection values
+   */
+
+  int                           n_volume_mass_injections;
+  cs_xdef_t                   **volume_mass_injections;
 
   /*!
    * @}
@@ -786,6 +808,14 @@ typedef struct {
 /*! \enum cs_equation_key_t
  *  \brief List of available keys for setting the parameters of an equation
  *
+ * \var CS_EQKEY_ADV_EXTRAPOL
+ * Choice in the way to extrapolate the advection field when building the
+ * advection operator
+ * - "none" (default)
+ * - "taylor"
+ * - "adams_bashforth"
+ * Please refer to \ref cs_param_advection_extrapol_t for more details.
+ *
  * \var CS_EQKEY_ADV_FORMULATION
  * Kind of formulation of the advective term. Available choices are:
  * - "conservative"
@@ -810,6 +840,15 @@ typedef struct {
  *   Consider a cellwise approximation of the advection field.
  *   (cf. \ref CS_PARAM_ADVECTION_SCHEME_CIP_CW)
  *
+ * \var CS_EQKEY_ADV_STRATEGY
+ * Strategy used to handle the advection term
+ * - "fully_implicit" or "implicit" (default choice)
+ * - "linearized" or "implicit_linear"
+ * - "explicit"
+ * There is a difference between the two first choices when the advection term
+ * induces a non-linearity. In this situation, the first choice implies that a
+ * non-linear algorithm has to be used.
+ *
  * \var CS_EQKEY_ADV_UPWIND_PORTION
  * Value between 0 and 1 specifying the portion of upwind added to a centered
  * discretization.
@@ -821,8 +860,8 @@ typedef struct {
  * - "boomer" --> Boomer AMG multigrid from the Hypre library
  * - "gamg" --> GAMG multigrid from the PETSc library
  * - "pcmg" --> MG multigrid as preconditioner from the PETSc library
- * - "v_cycle" --> Code_Saturne's in house multigrid with a V-cycle strategy
- * - "k_cycle" --> Code_Saturne's in house multigrid with a K-cycle strategy
+ * - "v_cycle" --> Code_Saturne's built-in multigrid with a V-cycle strategy
+ * - "k_cycle" --> Code_Saturne's built-in multigrid with a K-cycle strategy
  * WARNING: For "boomer" and "gamg",one needs to install Code_Saturne with
  * PETSc in this case
  *
@@ -997,25 +1036,30 @@ typedef struct {
  *
  * \var CS_EQKEY_SPACE_SCHEME
  * Set the space discretization scheme. Available choices are:
- * - "cdo_vb"  for CDO vertex-based scheme
- * - "cdo_vcb" for CDO vertex+cell-based scheme
- * - "cdo_fb"  for CDO face-based scheme
- * - "cdo_eb"  for CDO edge-based scheme
- * - "hho_p1"  for HHO schemes with \f$\mathbb{P}_1\f$ polynomial approximation
- * - "hho_p2"  for HHO schemes with \f$\mathbb{P}_2\f$ polynomial approximation
+ * - "cdo_vb"  or "cdovb" for CDO vertex-based scheme
+ * - "cdo_vcb" or "cdovcb" for CDO vertex+cell-based scheme
+ * - "cdo_fb"  or "cdofb" for CDO face-based scheme
+ * - "cdo_eb"  or "cdoeb" for CDO edge-based scheme
+ * - "hho_p1" for HHO schemes with \f$\mathbb{P}_1\f$ polynomial approximation
+ * - "hho_p2" for HHO schemes with \f$\mathbb{P}_2\f$ polynomial approximation
  *
  * \var CS_EQKEY_TIME_SCHEME
  * Set the scheme for the temporal discretization. Available choices are:
- * - "euler_implicit": first-order in time (inconditionnally stable)
- * - "euler_explicit":
- * - "crank_nicolson": second_order in time
- * - "theta_scheme": generic time scheme. One recovers "euler_implicit" with
- *   theta equal to "1", "explicit" with "0", "crank_nicolson" with "0.5"
+ * - "euler_implicit" or "forward_euler" (1st order)
+ * - "euler_explicit" or "backward_euler" (1st order, conditional stability)
+ * - "theta_scheme": Time scheme encompassing several other schemes according
+ *   to the value of theta. One recovers for instance "euler_implicit" with
+ *   theta equal to "1", "euler_explicit" with "0" or "crank_nicolson" with
+ *   theta equal to "0.5"
+ * - "crank_nicolson": Shortcut to set a theta scheme with theta equal to
+ *    0.5. This time discretization is second_order in time accurate.
+ * - "bdf2": 2nd order, implicit time scheme
  *
  * \var CS_EQKEY_TIME_THETA
- * Set the value of theta. Only useful if CS_EQKEY_TIME_SCHEME is set to
- * "theta_scheme"
- * - Example: "0.75" (keyval must be between 0 and 1)
+ * Set a value betwwen 0 and 1 for the theta parameter when a "theta_scheme" is
+ * set for the time discretization. Only useful if CS_EQKEY_TIME_SCHEME is set
+ * to "theta_scheme".
+ * - Example: "0.75"
  *
  * \var CS_EQKEY_VERBOSITY
  * Set the level of details written by the code for an equation.
@@ -1028,8 +1072,10 @@ typedef struct {
 
 typedef enum {
 
+  CS_EQKEY_ADV_EXTRAPOL,
   CS_EQKEY_ADV_FORMULATION,
   CS_EQKEY_ADV_SCHEME,
+  CS_EQKEY_ADV_STRATEGY,
   CS_EQKEY_ADV_UPWIND_PORTION,
   CS_EQKEY_AMG_TYPE,
   CS_EQKEY_BC_ENFORCEMENT,
@@ -1244,6 +1290,32 @@ cs_equation_param_has_internal_enforcement(const cs_equation_param_t     *eqp)
 
 /*----------------------------------------------------------------------------*/
 /*!
+ * \brief  Ask if the parameters of the equation induces an implicit treatment
+ *         of the advection term
+ *
+ * \param[in] eqp          pointer to a \ref cs_equation_param_t
+ *
+ * \return true or false
+ */
+/*----------------------------------------------------------------------------*/
+
+static inline bool
+cs_equation_param_has_implicit_advection(const cs_equation_param_t     *eqp)
+{
+  assert(eqp != NULL);
+  if (eqp->flag & CS_EQUATION_CONVECTION) {
+    if (eqp->adv_strategy == CS_PARAM_ADVECTION_IMPLICIT_FULL ||
+        eqp->adv_strategy == CS_PARAM_ADVECTION_IMPLICIT_LINEARIZED)
+      return true;
+    else
+      return false;
+  }
+  else
+    return false;
+}
+
+/*----------------------------------------------------------------------------*/
+/*!
  * \brief  Ask if the parameters of the equation has activated a user hook
  *         to get a fine tuning of the cellwise system building
  *
@@ -1316,16 +1388,35 @@ cs_equation_create_param(const char            *name,
 /*----------------------------------------------------------------------------*/
 /*!
  * \brief  Copy the settings from one \ref cs_equation_param_t structure to
- *         another one
+ *         another one. The name is not copied.
  *
- * \param[in]      ref   pointer to the reference \ref cs_equation_param_t
- * \param[in, out] dst   pointer to the \ref cs_equation_param_t to update
+ * \param[in]      ref       pointer to the reference \ref cs_equation_param_t
+ * \param[in, out] dst       pointer to the \ref cs_equation_param_t to update
+ * \param[in]      copy_fid  copy also the field id or not
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_equation_param_update_from(const cs_equation_param_t   *ref,
-                              cs_equation_param_t         *dst);
+cs_equation_param_copy_from(const cs_equation_param_t   *ref,
+                            cs_equation_param_t         *dst,
+                            bool                         copy_fid);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Free the contents of a \ref cs_equation_param_t
+ *
+ * The cs_equation_param_t structure itself is not freed, but all its
+ * sub-structures are freed.
+ *
+ * This is useful for equation parameters which are accessed through
+ * field keywords.
+ *
+ * \param[in, out]  eqp  pointer to a \ref cs_equation_param_t
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_equation_param_clear(cs_equation_param_t   *eqp);
 
 /*----------------------------------------------------------------------------*/
 /*!
@@ -1564,6 +1655,67 @@ cs_equation_add_bc_by_analytic(cs_equation_param_t        *eqp,
 
 /*----------------------------------------------------------------------------*/
 /*!
+ * \brief  Define and initialize a new structure to set a boundary condition
+ *         related to the given cs_equation_param_t structure
+ *         ml_name corresponds to the name of a pre-existing cs_mesh_location_t
+ *
+ * \param[in, out] eqp       pointer to a cs_equation_param_t structure
+ * \param[in]      bc_type   type of boundary condition to add
+ * \param[in]      z_name    name of the associated zone (if NULL or "" if
+ *                           all cells are considered)
+ * \param[in]      loc_flag  location where values are computed
+ * \param[in]      func      pointer to cs_dof_func_t function
+ * \param[in]      input     NULL or pointer to a structure cast on-the-fly
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
+*/
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_equation_add_bc_by_dof_func(cs_equation_param_t        *eqp,
+                               const cs_param_bc_type_t    bc_type,
+                               const char                 *z_name,
+                               cs_flag_t                   loc_flag,
+                               cs_dof_func_t              *func,
+                               void                       *input);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Return pointer to existing boundary condition definition structure
+ *         for the given equation param structure and zone.
+ *
+ * \param[in, out] eqp       pointer to a cs_equation_param_t structure
+ * \param[in]      z_name    name of the associated zone (if NULL or "" if
+ *                           all cells are considered)
+ *
+ * \return a pointer to the \ref cs_xdef_t structure if present, or NULL
+*/
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_equation_find_bc(cs_equation_param_t   *eqp,
+                    const char            *z_name);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Remove boundary condition from the given equation param structure
+ *         for a given zone.
+ *
+ * If no matching boundary condition is found, the function returns
+ * silently.
+ *
+ * \param[in, out] eqp       pointer to a cs_equation_param_t structure
+ * \param[in]      z_name    name of the associated zone (if NULL or "" if
+ *                           all cells are considered)
+*/
+/*----------------------------------------------------------------------------*/
+
+void
+cs_equation_remove_bc(cs_equation_param_t   *eqp,
+                      const char            *z_name);
+
+/*----------------------------------------------------------------------------*/
+/*!
  * \brief  Define and initialize a new structure to set a sliding boundary
  *         condition related to the given equation structure
  *         z_name corresponds to the name of a pre-existing cs_zone_t
@@ -1772,6 +1924,66 @@ cs_equation_add_source_term_by_array(cs_equation_param_t    *eqp,
 
 /*----------------------------------------------------------------------------*/
 /*!
+ * \brief  Add a new volume mass injection definition source term by
+ *         initializing a cs_xdef_t structure, using a constant value.
+ *
+ * \param[in, out] eqp       pointer to a cs_equation_param_t structure
+ * \param[in]      z_name    name of the associated zone (if NULL or "" if
+ *                           all cells are considered)
+ * \param[in]      val       pointer to the value
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_equation_add_volume_mass_injection_by_value(cs_equation_param_t  *eqp,
+                                               const char           *z_name,
+                                               double               *val);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Add a new volume mass injection definition source term by
+ *         initializing a cs_xdef_t structure, using a constant quantity
+ *         distributed over the associated zone's volume.
+ *
+ * \param[in, out] eqp       pointer to a cs_equation_param_t structure
+ * \param[in]      z_name    name of the associated zone (if NULL or "" if
+ *                           all cells are considered)
+ * \param[in]      quantity  pointer to quantity to distribute over the zone
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_equation_add_volume_mass_injection_by_qov(cs_equation_param_t  *eqp,
+                                             const char           *z_name,
+                                             double               *quantity);
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Add a new volume mass injection definition source term by
+ *         initializing a cs_xdef_t structure, using an analytical function.
+ *
+ * \param[in, out] eqp       pointer to a cs_equation_param_t structure
+ * \param[in]      z_name    name of the associated zone (if NULL or "" if
+ *                           all cells are considered)
+ * \param[in]      func      pointer to an analytical function
+ * \param[in]      input     NULL or pointer to a structure cast on-the-fly
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_equation_add_volume_mass_injection_by_analytic(cs_equation_param_t    *eqp,
+                                                  const char             *z_name,
+                                                  cs_analytic_func_t     *func,
+                                                  void                   *input);
+
+/*----------------------------------------------------------------------------*/
+/*!
  * \brief  Add an enforcement of the value of degrees of freedom located at
  *         mesh vertices.
  *         The spatial discretization scheme for the given equation has to be
@@ -1814,11 +2026,11 @@ cs_equation_enforce_vertex_dofs(cs_equation_param_t    *eqp,
 /*----------------------------------------------------------------------------*/
 
 void
-cs_equation_enforce_by_cell_selection(cs_equation_param_t    *eqp,
-                                      cs_lnum_t               n_elts,
-                                      const cs_lnum_t         elt_ids[],
-                                      const cs_real_t         ref_value[],
-                                      const cs_real_t         elt_values[]);
+cs_equation_enforce_value_on_cell_selection(cs_equation_param_t  *eqp,
+                                            cs_lnum_t             n_elts,
+                                            const cs_lnum_t       elt_ids[],
+                                            const cs_real_t       ref_value[],
+                                            const cs_real_t       elt_values[]);
 
 /*----------------------------------------------------------------------------*/
 

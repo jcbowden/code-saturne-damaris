@@ -1183,25 +1183,6 @@ cs_parameters_check(void)
                                       var_cal_opt.climgr,
                                       1.);
 
-      /* Extrag can be different from zero only for the pressure
-         and in that case equal to 1 */
-      if (f_id == f_pot->id) {
-        const cs_real_t extrag_vals[2] = {0., 1.};
-        cs_parameters_is_in_list_double(CS_ABORT_DELAYED,
-                                        _(f_desc),
-                                        "var_cal_opt.extrag",
-                                        var_cal_opt.extrag,
-                                        2,
-                                        extrag_vals,
-                                        NULL);
-      } else {
-        cs_parameters_is_equal_double(CS_ABORT_DELAYED,
-                                      _(f_desc),
-                                      "var_cal_opt.extrag",
-                                      var_cal_opt.extrag,
-                                      0.);
-      }
-
       cs_parameters_is_in_range_int(CS_ABORT_DELAYED,
                                     _(f_desc),
                                     "var_cal_opt.ircflu (fluxes "
@@ -1377,7 +1358,7 @@ cs_parameters_check(void)
   }
 
   /* LES balance */
-  if (   cs_glob_turb_model->itytur != 4
+  if (   cs_glob_turb_model->type != CS_TURB_LES
       && cs_glob_les_balance->i_les_balance != 0) {
     cs_parameters_is_equal_int(CS_WARNING,
                                _("while reading input data,\n"
@@ -1699,16 +1680,20 @@ cs_parameters_check(void)
                                 0, 4);
 
   if (cs_glob_porous_model == 3) { /* integral formulation */
-    cs_parameters_is_equal_int(CS_ABORT_DELAYED,
+    const int imrgra_vals[5] ={0, 4, 5, 6, 7};
+
+    cs_parameters_is_in_list_int(CS_ABORT_DELAYED,
                                _("while reading porous model,\n"
                                  "integral formulation "
                                  "(cs_glob_porous_model=3) "
-                                 "only compatible \n"
+                                 "not compatible \n"
                                  "with gradient calculation method: "
-                                 "iterative handling of non-orthogonalities"),
+                                 "least squares"),
                                "cs_glob_space_disc->imrgra",
                                cs_glob_space_disc->imrgra,
-                               0);
+                               5,
+                               imrgra_vals,
+                               NULL);
   }
 
   cs_field_get_key_struct(CS_F_(vel), key_cal_opt_id, &var_cal_opt);
@@ -1791,7 +1776,8 @@ cs_parameters_check(void)
                                "number of coupled scalars",
                                nbsccp,
                                0);
-  } else { /* if coupling with SYRTHES */
+  }
+  else { /* if coupling with SYRTHES */
     /* and more than one scalar is defined as coupled */
     cs_parameters_is_equal_int(CS_ABORT_DELAYED,
                                _("Inconsistency in SYRTHES coupling settings,\n"
@@ -1801,37 +1787,26 @@ cs_parameters_check(void)
                                nbsccp,
                                1);
 
+    const cs_field_t *tf = cs_thermal_model_field();
+    const char none_defined[] = "<none_defined>";
+    const char *tf_name = none_defined;
+    if (tf)
+      tf_name = tf->name;
+
     /* and the coupled scalar is not the thermal scalar
        or if the thermal scalar is not the temperature
        if compressible is not enabled */
     for (int f_id = 0 ; f_id < cs_field_n_fields() ; f_id++) {
       cs_field_t  *f = cs_field_by_id(f_id);
       int icpsyr = cs_field_get_key_int(f, kcpsyr);
-      if (icpsyr == 1) {
-        /* compressible */
-        if (cs_glob_physical_model_flag[CS_COMPRESSIBLE] > 0) {
-          cs_parameters_is_equal_int(CS_ABORT_DELAYED,
-                                     _("Inconsistency in SYRTHES coupling "
-                                       "settings,\n"
-                                       "with the compressible module, the "
-                                       "coupled scalar must be the energy "
-                                       "(use thermal scalar number "
-                                       "cs_glob_thermal_model->iscalt)"),
-                                     "number of coupled scalar",
-                                     cs_field_get_key_int(f, keysca),
-                                     cs_glob_thermal_model->iscalt);
-        } else { /* not compressible */
-          cs_parameters_is_equal_int(CS_ABORT_DELAYED,
-                                     _("Inconsistency in SYRTHES coupling "
-                                       "settings,\n"
-                                       "the coupled scalar must be the "
-                                       "the thermal scalar \n"
-                                       "(use thermal scalar number "
-                                       "cs_glob_thermal_model->iscalt)"),
-                                     "number of coupled scalar",
-                                     cs_field_get_key_int(f, keysca),
-                                     cs_glob_thermal_model->iscalt);
-        }
+      if (icpsyr == 1 && f != tf) {
+        cs_parameters_error
+          (CS_ABORT_DELAYED,
+           _("Inconsistency in SYRTHES coupling "
+             "settings,\n"
+             "the coupled scalar must be the "
+             "the thermal scalar (%s), not %s."),
+           tf_name, f->name);
       }
     }
   }
@@ -1943,7 +1918,7 @@ cs_parameters_check(void)
   for (int f_id = 0 ; f_id < cs_field_n_fields() ; f_id++) {
     cs_field_t  *f = cs_field_by_id(f_id);
     if (f->type & CS_FIELD_VARIABLE) {
-      cs_real_t visls0 = cs_field_get_key_double(f, kvisls0);
+      cs_real_t visls_0 = cs_field_get_key_double(f, kvisls0);
       f_desc = _field_section_desc(f, "reference diffusivity value for "
                                       "variable ");
 
@@ -1955,7 +1930,7 @@ cs_parameters_check(void)
         cs_parameters_is_greater_double(CS_ABORT_DELAYED,
                                         _(f_desc),
                                         "key diffusivity_ref",
-                                        visls0,
+                                        visls_0,
                                         0.);
       }
 

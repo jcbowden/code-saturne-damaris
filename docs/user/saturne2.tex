@@ -83,8 +83,8 @@ the following informations are given:
 \end{list}
 
 The L1 keywords can be modified through the Graphical Use Interface or
-in the \texttt{cs\_user\_parameters.f90} file. L2 and L3 keywords can only be modified through
-the \texttt{cs\_user\_parameters.f90} file, even if they do not appear in the version proposed
+in the \texttt{cs\_user\_parameters.c} file. L2 and L3 keywords can only be modified through
+the \texttt{cs\_user\_parameters.c} file, even if they do not appear in the version proposed
 as example it the \texttt{SRC/REFERENCE/base} directory.\\
 It is however recommended not to modify the keywords which do not belong to the L1
 level.
@@ -104,7 +104,7 @@ corresponds to $10^{12}$.
 
 \minititre{Notes}
 \begin{list}{$\bullet$}{}
-\item Two different files can have neither the same unit number nor the
+\item Two different files can not use the same unit number (in Fortran) nor the
       same name.
 \end{list}
 
@@ -118,53 +118,6 @@ corresponds to $10^{12}$.
 
 For the calculation file related to the thermochemistry, please refer
 to the dedicated \doxygenfile{group__userfile.html}{\texttt{Doxygen} documentation}.
-
-%==================================
-\subsubsection{Post-processing for {\em EnSight} or other tools}
-%==================================
-
-\minititre{Notes}
-$\bullet\quad$The format depends on the user choices, and most options
-are defined using the GUI or \\
-\texttt{cs\_user\_postprocess.c}.\\
-$\bullet\quad$The post-processing files can be of the following formats: {\em Ensight Gold},
-{\em MED} or {\em CGNS}. The use of the two latter formats depends on
-the installation of the corresponding external libraries.\\
-$\bullet\quad$For each quantity (problem unknown, preselected numerical
-variable or preselected physical parameter), the user specifies if a
-post-processing output is wanted. The output frequency can be set.\\
-
-See the dedicated \doxygenanchor{group__entsor.html\#keyvis}{\texttt{Doxygen}
-documentation about \texttt{keyvis}}.
-
-%==================================
-\subsubsection{Chronological records of the variables on specific points}
-%==================================
-
-\minititre{Standard use through Interface or \texttt{cs\_user\_parameters.f90}}
-For each quantity (problem unknown, preselected numerical variable or
-preselected physical parameter), the user indicates whether chronological records
-should be generated, the output period and the position of the
-probes. The code generates chronological records at the cell centers located
-closest to the geometric points defined by the user by means of their
-coordinates. For each quantity, the number of probes and their
-index-numbers must be specified (it is not mandatory to generate all
-the variables at all the probes).
-
-Please refer to the dedicated \doxygenfile{group__history.html}{\texttt{Doxygen} documentation}.
-
-%==================================
-\subsubsection{Time averages}
-%==================================
-See \doxygenfile{parameters.html}{the dedicated \texttt{Doxygen} documentation}.
-
-%==================================
-\subsubsection{Others}
-%==================================
-
-For user calculation file, see the following \doxygenfile{group_userfile.html}{\texttt{Doxygen}
-documentation}. For other printing options, please refer to the
-\doxygenfile{group_entsor.html}{\texttt{Doxygen} documentation} dealing with input/output options.
 
 %==================================
 \subsection{Numerical options}
@@ -324,7 +277,7 @@ for detailed informations about the time stepping parameters.
 %==================================
 
 The gradient reconstruction keywords such as \texttt{imrgra}, \texttt{nswrgr},
-\texttt{epsrgr}, \texttt{imligr}, \texttt{climgr} or \texttt{extrag} are members
+\texttt{epsrgr}, \texttt{imligr}, or \texttt{climgr} are members
 of the \texttt{cs\_var\_cal\_opt\_t} structure for which informations can be
 found in the following \doxygenfile{structcs__var__cal__opt__t.html}{\texttt{Doxygen}
 documentation}.
@@ -557,23 +510,14 @@ Most physical variables are listed in the following
 \doxygenfile{group__cstphy.html}{\texttt{Doxygen} documentation}.
 
 Other physical variables such as \texttt{diftl0}, \texttt{srrom},
-\texttt{visls0}, \texttt{sigmas} or \texttt{rvarfl} are described in the following
+\texttt{sigmas} or \texttt{rvarfl} are described in the following
 \texttt{Doxygen} pages :
 \begin{itemize}
 \item \doxygenanchor{group__thermophysical.html\#diftl0}{\texttt{diftl0}},
 \item \doxygenanchor{group__enthalpy.html\#srrom}{\texttt{srrom}},
-\item \doxygenfile{group__scalar__params.html}{\texttt{visls0}, \texttt{sigmas},
+\item \doxygenfile{group__scalar__params.html}{\texttt{sigmas},
 \texttt{rvarfl}}.
 \end{itemize}
-
-%==================================
-\subsubsection{Modelling parameters}
-%==================================
-
-Please refer to the following
-\doxygenfile{group__csttur.html}{\texttt{Doxygen} documentation} for
-more informations about modelling parameters such as \texttt{xlomlg},
-\texttt{almax} or \texttt{uref}.
 
 %==================================
 \subsection{ALE}
@@ -619,21 +563,3 @@ are taken into account in the impulse momentum equation.
 The different keywords used in the electric module are detailed in
 the following \doxygenfile{structcs__elec__option__t.html}{\texttt{Doxygen}
 documentation}.
-
-%=================================================
-\subsection{Compressible module: specificities}
-%==================================
-
-The keywords used in the global settings are quite few. They are
-found in the subroutines \texttt{uscfx1} and \texttt{uscfx2}, in
-the \texttt{cs\_user\_parameters.f90} file (see the
-description of these user subroutines, \S\ref{prg_uscfx12}).
-
-Detailed informations can be found
-\doxygenfile{group__common.html}{here} for the keywords
-\texttt{igrdpp}, \texttt{viscv0} and \texttt{icfgrp}.
-
-For \texttt{iviscv}, \texttt{ieos} and \texttt{xmasmr},
-please refer to the dedicated
-\doxygenfile{structcs__fluid__properties__t.html}{\texttt{Doxygen} documentation}.
-

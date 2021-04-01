@@ -78,7 +78,7 @@ InitializationView.py \
 InterfacialEnthalpyView.py \
 InterfacialForcesView.py \
 InterfacialAreaView.py \
-LagrangianBoundariesView.py \
+LagrangianBoundaryView.py \
 LagrangianOutputView.py \
 LagrangianStatisticsView.py \
 LagrangianView.py \
@@ -122,7 +122,10 @@ OutputFieldsView.py \
 OpenTurnsDialogView.py \
 SolidView.py \
 ThermodynamicsView.py \
-TimeStepViewNeptune.py
+TimeStepViewNeptune.py \
+VolumicNatureView.py \
+BoundaryNatureView.py \
+VolumicConditionsView.py
 
 # PyQt User Interface files
 UIFILES = \
@@ -168,7 +171,7 @@ IdentityAndPathesForm.ui \
 ImmersedBoundariesNeptune.ui \
 InitializationForm.ui \
 LagrangianAdvancedOptionsDialogForm.ui \
-LagrangianBoundariesForm.ui \
+LagrangianBoundaryForm.ui \
 LagrangianForm.ui \
 LagrangianOutputForm.ui \
 LagrangianStatisticsForm.ui \
@@ -230,7 +233,10 @@ BoundaryConditionsNonCondensable.ui \
 BoundaryConditionsScalar.ui \
 BoundaryConditionsWall.ui \
 BoundaryConditionsInterfacialArea.ui \
-TimeStep.ui
+TimeStep.ui \
+VolumicNatureForm.ui \
+BoundaryNatureForm.ui \
+VolumicConditionsForm.ui
 
 # PyQt Resources files
 

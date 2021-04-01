@@ -80,6 +80,17 @@ BEGIN_C_DECLS
  * Private variables
  *============================================================================*/
 
+static const char _err_empty_nsp[] =
+  N_(" %s: Stop setting an empty cs_navsto_param_t structure.\n"
+     " Please check your settings.\n");
+
+static const char
+cs_navsto_param_model_name[CS_NAVSTO_N_MODELS][CS_BASE_STRING_LEN] =
+  { N_("Stokes equations"),
+    N_("Oseen equations"),
+    N_("Incompressible Navier-Stokes equations"),
+  };
+
 static const char
 cs_navsto_param_coupling_name[CS_NAVSTO_N_COUPLINGS][CS_BASE_STRING_LEN] =
   { N_("Artificial compressibility algorithm"),
@@ -87,9 +98,7 @@ cs_navsto_param_coupling_name[CS_NAVSTO_N_COUPLINGS][CS_BASE_STRING_LEN] =
     N_("Incremental projection algorithm"),
   };
 
-static const char _err_empty_nsp[] =
-  N_(" %s: Stop setting an empty cs_navsto_param_t structure.\n"
-     " Please check your settings.\n");
+/* Keys to transfer settings from cs_param_navsto_t to cs_equation_param_t */
 
 static const char
 _space_scheme_key[CS_SPACE_N_SCHEMES][CS_BASE_STRING_LEN] =
@@ -109,7 +118,8 @@ _time_scheme_key[CS_TIME_N_SCHEMES][CS_BASE_STRING_LEN] =
     "euler_implicit",
     "euler_explicit",
     "crank_nicolson",
-    "theta_scheme"
+    "theta_scheme",
+    "bdf2"
   };
 
 static const char
@@ -128,6 +138,14 @@ _quad_type_key[CS_QUADRATURE_N_TYPES][CS_BASE_STRING_LEN] =
   };
 
 static const char
+_adv_extrap_key[CS_PARAM_N_ADVECTION_EXTRAPOLATIONS][CS_BASE_STRING_LEN] =
+  {
+    "none",
+    "taylor",
+    "adams_bashforth"
+  };
+
+static const char
 _adv_formulation_key[CS_PARAM_N_ADVECTION_FORMULATIONS][CS_BASE_STRING_LEN] =
   {
     "conservative",
@@ -141,10 +159,18 @@ _adv_scheme_key[CS_PARAM_N_ADVECTION_SCHEMES][CS_BASE_STRING_LEN] =
     "centered",
     "cip",
     "cip_cw",
-    "mix_centered_upwind",
+    "hybrid_centered_upwind",
     "samarskii",
     "sg",
     "upwind"
+  };
+
+static const char
+_adv_strategy_key[CS_PARAM_N_ADVECTION_STRATEGIES][CS_BASE_STRING_LEN] =
+  {
+    "fully_implicit",
+    "linearized",
+    "explicit"
   };
 
 /*============================================================================
@@ -169,6 +195,7 @@ _check_petsc_strategy(const char         *val,
 {
 #if defined(HAVE_PETSC)
 #if PETSC_VERSION_GE(3,11,0)
+  CS_UNUSED(val);
   return sles_type;
 #else
   if (sles_type == CS_NAVSTO_SLES_GKB_GMRES ||
@@ -216,6 +243,37 @@ _get_momentum_param(cs_navsto_param_t    *nsp)
   }  /* Switch */
 }
 
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Retrieve the \ref cs_equation_param_t structure related to the
+ *         momentum equation according to the type of coupling
+ *
+ * \param[in]  nsp       pointer to a \ref cs_navsto_param_t structure
+ *
+ * \return a pointer to the corresponding \ref cs_equation_param_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+static void
+_propagate_qtype(cs_navsto_param_t    *nsp)
+{
+  /* Loop on velocity ICs */
+  for (int i = 0; i < nsp->n_velocity_ic_defs; i++)
+    cs_xdef_set_quadrature(nsp->velocity_ic_defs[i], nsp->qtype);
+
+  /* Loop on pressure ICs */
+  for (int i = 0; i < nsp->n_pressure_ic_defs; i++)
+    cs_xdef_set_quadrature(nsp->pressure_ic_defs[i], nsp->qtype);
+
+  /* Loop on velocity BCs */
+  for (int i = 0; i < nsp->n_velocity_bc_defs; i++)
+    cs_xdef_set_quadrature(nsp->velocity_bc_defs[i], nsp->qtype);
+
+  /* Loop on pressure BCs */
+  for (int i = 0; i < nsp->n_pressure_bc_defs; i++)
+    cs_xdef_set_quadrature(nsp->pressure_bc_defs[i], nsp->qtype);
+}
+
 /*! (DOXYGEN_SHOULD_SKIP_THIS) \endcond */
 
 /*============================================================================
@@ -227,69 +285,77 @@ _get_momentum_param(cs_navsto_param_t    *nsp)
  * \brief  Create a new structure to store all numerical parameters related
  *         to the resolution of the Navier-Stokes (NS) system
  *
- * \param[in]  boundaries       pointer to a cs_boundary_t structure
- * \param[in]  model            model related to the NS system to solve
- * \param[in]  algo_coupling    algorithm used for solving the NS system
- * \param[in]  option_flag      additional high-level numerical options
- * \param[in]  post_flag        predefined post-processings
+ * \param[in] boundaries      pointer to a cs_boundary_t structure
+ * \param[in] model           type of model related to the NS system
+ * \param[in] model_flag      additional high-level model options
+ * \param[in] algo_coupling   algorithm used for solving the NS system
+ * \param[in] post_flag       predefined post-processings options
  *
  * \return a pointer to a new allocated structure
  */
 /*----------------------------------------------------------------------------*/
 
 cs_navsto_param_t *
-cs_navsto_param_create(const cs_boundary_t             *boundaries,
-                       cs_navsto_param_model_t          model,
-                       cs_navsto_param_coupling_t       algo_coupling,
-                       cs_flag_t                        option_flag,
-                       cs_flag_t                        post_flag)
+cs_navsto_param_create(const cs_boundary_t            *boundaries,
+                       cs_navsto_param_model_t         model,
+                       cs_navsto_param_model_flag_t    model_flag,
+                       cs_navsto_param_coupling_t      algo_coupling,
+                       cs_navsto_param_post_flag_t     post_flag)
 {
   cs_navsto_param_t  *param = NULL;
   BFT_MALLOC(param, 1, cs_navsto_param_t);
-
-  /* Flags and indicators */
-  param->verbosity = 1;
-  param->post_flag = post_flag;
 
   /* Physical modelling */
   /* ------------------ */
 
   /* Which equations are solved and which terms are needed */
   param->model = model;
-  param->reference_pressure = 0.;
-  param->phys_constants = cs_get_glob_physical_constants();
+  param->model_flag = model_flag;
 
   /* Turbulence modelling (pointer to global structures) */
-  param->turbulence = cs_get_glob_turb_model();
-  param->rans_modelling = cs_get_glob_turb_rans_model();
+  param->turbulence = cs_turbulence_param_create();
 
   /* Main set of properties */
+  /* ---------------------- */
+
+  param->phys_constants = cs_get_glob_physical_constants();
+
   param->mass_density = cs_property_by_name(CS_PROPERTY_MASS_DENSITY);
   if (param->mass_density == NULL)
     param->mass_density = cs_property_add(CS_PROPERTY_MASS_DENSITY,
                                           CS_PROPERTY_ISO);
 
-  param->lami_viscosity = cs_property_add(CS_NAVSTO_LAMINAR_VISCOSITY,
-                                          CS_PROPERTY_ISO);
+  param->lam_viscosity = cs_property_add(CS_NAVSTO_LAM_VISCOSITY,
+                                         CS_PROPERTY_ISO);
+
+  if (param->turbulence->model->iturb == CS_TURB_NONE)
+    param->tot_viscosity = param->lam_viscosity;
+  else
+    param->tot_viscosity = cs_property_add(CS_NAVSTO_TOTAL_VISCOSITY,
+                                           CS_PROPERTY_ISO);
 
   /* Default numerical settings */
   /* -------------------------- */
 
-  param->option_flag = option_flag;
+  param->dof_reduction_mode = CS_PARAM_REDUCTION_AVERAGE;
   param->coupling = algo_coupling;
   param->space_scheme = CS_SPACE_SCHEME_CDOFB;
-  param->dof_reduction_mode = CS_PARAM_REDUCTION_AVERAGE;
-  param->qtype = CS_QUADRATURE_BARY;
 
-  param->adv_form   = CS_PARAM_N_ADVECTION_FORMULATIONS;
+  /* Advection settings */
+  param->adv_form   = CS_PARAM_ADVECTION_FORM_NONCONS;
   param->adv_scheme = CS_PARAM_ADVECTION_SCHEME_UPWIND;
+  param->adv_strategy = CS_PARAM_ADVECTION_IMPLICIT_FULL;
+  param->adv_extrapol = CS_PARAM_ADVECTION_EXTRAPOL_NONE;
 
   /* Forcing steady state in order to avoid inconsistencies */
-  if (option_flag & CS_NAVSTO_FLAG_STEADY)
+  if (model_flag & CS_NAVSTO_MODEL_STEADY)
     param->time_scheme = CS_TIME_SCHEME_STEADY;
   else
     param->time_scheme = CS_TIME_SCHEME_EULER_IMPLICIT;
   param->theta = 1.0;
+
+  /* Default level of quadrature */
+  param->qtype = CS_QUADRATURE_BARY;
 
   /* Resolution parameters (inner linear system then the non-linear system )*/
   param->sles_param.strategy = CS_NAVSTO_SLES_EQ_WITHOUT_BLOCK;
@@ -306,12 +372,21 @@ cs_navsto_param_create(const cs_boundary_t             *boundaries,
   param->sles_param.nl_algo_dtol = 1e3;
   param->sles_param.nl_algo_verbosity = 1;
 
-  /* Physical boundaries specific to the problem at stake */
-  param->boundaries = boundaries; /* shared structure */
+  /* Management of the outer resolution steps (i.e. the full system including
+     the turbulence modelling or the the thermal system) */
+  param->n_max_outer_iter = 5;
+  param->delta_thermal_tolerance = 1e-2;
 
-  /* Remark: As velocity and pressure may not be associated to an equation
-     directly, one stores the definition of initial conditions and boundary
-     conditions at this level */
+  /* Output indicators */
+  param->verbosity = 1;
+  param->post_flag = post_flag;
+
+  /* Initial conditions
+   * ------------------
+   *
+   * Remark: As velocity and pressure may not be associated to an equation
+   * directly, one stores the definition of initial conditions and boundary
+   * conditions at this level */
 
   switch (algo_coupling) {
 
@@ -356,6 +431,12 @@ cs_navsto_param_create(const cs_boundary_t             *boundaries,
   param->n_velocity_ic_defs = 0;
   param->velocity_ic_defs = NULL;
 
+  /* Boundary conditions */
+  /* ------------------- */
+
+  /* Physical boundaries specific to the problem at stake */
+  param->boundaries = boundaries; /* shared structure */
+
   /* Boundary conditions for the pressure field */
   param->n_pressure_bc_defs = 0;
   param->pressure_bc_defs = NULL;
@@ -363,6 +444,12 @@ cs_navsto_param_create(const cs_boundary_t             *boundaries,
   /* Boundary conditions for the velocity field */
   param->n_velocity_bc_defs = 0;
   param->velocity_bc_defs = NULL;
+
+  /* Other conditions */
+  /* ---------------- */
+
+  /* Rescaling of the pressure */
+  param->reference_pressure = 0.;
 
   /* Enforcement of a solid zone */
   param->n_solid_cells = 0;
@@ -386,6 +473,10 @@ cs_navsto_param_free(cs_navsto_param_t    *param)
 {
   if (param == NULL)
     return param;
+
+  /* Turbulence modelling */
+
+  BFT_FREE(param->turbulence);
 
   /* Velocity initial conditions */
 
@@ -475,6 +566,21 @@ cs_navsto_param_set(cs_navsto_param_t    *nsp,
 
   switch(key) {
 
+  case CS_NSKEY_ADVECTION_EXTRAPOL:
+    if (strcmp(val, "none") == 0)
+      nsp->adv_extrapol = CS_PARAM_ADVECTION_EXTRAPOL_NONE;
+    else if (strcmp(val, "taylor") == 0)
+      nsp->adv_extrapol = CS_PARAM_ADVECTION_EXTRAPOL_TAYLOR_2;
+    else if (strcmp(val, "adams_bashforth") == 0)
+      nsp->adv_extrapol = CS_PARAM_ADVECTION_EXTRAPOL_ADAMS_BASHFORTH_2;
+    else {
+      const char *_val = val;
+      bft_error(__FILE__, __LINE__, 0,
+                _(" %s: Invalid val %s related to key"
+                  " CS_NSKEY_ADVECTION_EXTRAPOL\n"), __func__, _val);
+    }
+    break;
+
   case CS_NSKEY_ADVECTION_FORMULATION:
     if (strcmp(val, "conservative") == 0)
       nsp->adv_form = CS_PARAM_ADVECTION_FORM_CONSERV;
@@ -520,8 +626,25 @@ cs_navsto_param_set(cs_navsto_param_t    *nsp,
                 _(" %s: Invalid val %s related to key"
                   " CS_NSKEY_ADVECTION_SCHEME\n"
                   " Choice between upwind, samarskii, sg, centered, cip, cip_cw,"
-                  " mix_centered_upwind"),
+                  " hybrid_centered_upwind, mix_centered_upwind"),
                 __func__, _val);
+    }
+    break;
+
+  case CS_NSKEY_ADVECTION_STRATEGY:
+    if (strcmp(val, "fully_implicit") == 0 ||
+        strcmp(val, "implicit") == 0)
+      nsp->adv_strategy = CS_PARAM_ADVECTION_IMPLICIT_FULL;
+    else if (strcmp(val, "implicit_linear") == 0 ||
+             strcmp(val, "linearized") == 0)
+      nsp->adv_strategy = CS_PARAM_ADVECTION_IMPLICIT_LINEARIZED;
+    else if (strcmp(val, "explicit") == 0)
+      nsp->adv_strategy = CS_PARAM_ADVECTION_EXPLICIT;
+    else {
+      const char *_val = val;
+      bft_error(__FILE__, __LINE__, 0,
+                _(" %s: Invalid val %s related to key"
+                  " CS_NSKEY_ADVECTION_STRATEGY\n"), __func__, _val);
     }
     break;
 
@@ -591,11 +714,14 @@ cs_navsto_param_set(cs_navsto_param_t    *nsp,
     nsp->sles_param.n_max_nl_algo_iter = atoi(val);
     break;
 
+  case CS_NSKEY_MAX_OUTER_ITER:
+    nsp->n_max_outer_iter = atoi(val);
+    break;
+
   case CS_NSKEY_NL_ALGO:
     {
-      if (strcmp(val, "picard") == 0)
-        nsp->sles_param.nl_algo = CS_NAVSTO_NL_PICARD_ALGO;
-      else if (strcmp(val, "fixed-point") == 0)
+      if (strcmp(val, "picard") == 0 ||
+          strcmp(val, "fixed-point") == 0)
         nsp->sles_param.nl_algo = CS_NAVSTO_NL_PICARD_ALGO;
       else {
         const char *_val = val;
@@ -659,6 +785,7 @@ cs_navsto_param_set(cs_navsto_param_t    *nsp,
                     " and \"highest\"."), __func__, _val);
       }
 
+      _propagate_qtype(nsp);
     }
     break; /* Quadrature */
 
@@ -749,6 +876,12 @@ cs_navsto_param_set(cs_navsto_param_t    *nsp,
     }
     break;
 
+  case CS_NSKEY_THERMAL_TOLERANCE:
+    nsp->delta_thermal_tolerance = atof(val);
+    /* If tolerance is set to a negative value then it stops the outer
+       iteration process after the first iteration */
+    break;
+
   case CS_NSKEY_TIME_SCHEME:
     if (strcmp(val, "euler_implicit") == 0) {
       nsp->time_scheme = CS_TIME_SCHEME_EULER_IMPLICIT;
@@ -764,13 +897,15 @@ cs_navsto_param_set(cs_navsto_param_t    *nsp,
     }
     else if (strcmp(val, "theta_scheme") == 0)
       nsp->time_scheme = CS_TIME_SCHEME_THETA;
+    else if (strcmp(val, "bdf2") == 0)
+      nsp->time_scheme = CS_TIME_SCHEME_BDF2;
     else {
       const char *_val = val;
       bft_error(__FILE__, __LINE__, 0,
                 _(" %s: Invalid value \"%s\" for CS_EQKEY_TIME_SCHEME\n"
                   " Valid choices are \"euler_implicit\","
                   " \"euler_explicit\"," " \"crank_nicolson\","
-                  " and \"theta_scheme\"."), __func__, _val);
+                  " \"theta_scheme\" and \"bdf2\"."), __func__, _val);
     }
     break;
 
@@ -834,15 +969,23 @@ cs_navsto_param_transfer(const cs_navsto_param_t    *nsp,
   /*  Set quadratures type */
   const char  *quad_key = _quad_type_key[nsp->qtype];
 
-  /* If requested, add advection */
-  if (nsp->adv_form != CS_PARAM_N_ADVECTION_FORMULATIONS) {
+  /* If requested, add advection parameters */
+  if ((nsp->model & (CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES |
+                     CS_NAVSTO_MODEL_OSEEN)) > 0) {
+
     /* If different from default value */
+    const char *extrap_key = _adv_extrap_key[nsp->adv_extrapol];
+    cs_equation_set_param(eqp, CS_EQKEY_ADV_EXTRAPOL, extrap_key);
+
+    const char *stra_key = _adv_strategy_key[nsp->adv_strategy];
+    cs_equation_set_param(eqp, CS_EQKEY_ADV_STRATEGY, stra_key);
+
     const char *form_key = _adv_formulation_key[nsp->adv_form];
     cs_equation_set_param(eqp, CS_EQKEY_ADV_FORMULATION, form_key);
 
-    assert(nsp->adv_scheme != CS_PARAM_N_ADVECTION_SCHEMES);
     const char *scheme_key = _adv_scheme_key[nsp->adv_scheme];
     cs_equation_set_param(eqp, CS_EQKEY_ADV_SCHEME, scheme_key);
+
   }
 
   cs_equation_set_param(eqp, CS_EQKEY_BC_QUADRATURE, quad_key);
@@ -862,8 +1005,10 @@ cs_navsto_param_log(const cs_navsto_param_t    *nsp)
   if (nsp == NULL)
     return;
 
+  const char  navsto[16] = "  * NavSto |";
+
   /* Sanity checks */
-  if (nsp->model < 1)
+  if (nsp->model == CS_NAVSTO_N_MODELS)
     bft_error(__FILE__, __LINE__, 0, "%s: Invalid model for Navier-Stokes.\n",
               __func__);
   if (nsp->coupling == CS_NAVSTO_N_COUPLINGS)
@@ -871,68 +1016,93 @@ cs_navsto_param_log(const cs_navsto_param_t    *nsp)
               "%s: Invalid way of coupling the Navier-Stokes equations.\n",
               __func__);
 
-  cs_log_printf(CS_LOG_SETUP, "  * NavSto | Verbosity: %d\n", nsp->verbosity);
-  if (cs_navsto_param_is_steady(nsp))
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Time status: Steady\n");
-  else
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Time status: Unsteady\n");
+  cs_log_printf(CS_LOG_SETUP, "%s Verbosity: %d\n", navsto, nsp->verbosity);
 
   /* Describe the physical modelling */
+  cs_log_printf(CS_LOG_SETUP, "%s Model: %s\n",
+                navsto, cs_navsto_param_get_model_name(nsp->model));
 
-  if (nsp->model & CS_NAVSTO_MODEL_STOKES) {
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  "Stokes velocity-pressure system");
-    assert(!(nsp->model & CS_NAVSTO_MODEL_OSEEN) &&
-           !(nsp->model & CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES));
+  if (nsp->model_flag & CS_NAVSTO_MODEL_GRAVITY_EFFECTS)
+    cs_log_printf(CS_LOG_SETUP, "%s Model: Gravity effect activated\n",
+                  navsto);
+
+  if (nsp->model_flag & CS_NAVSTO_MODEL_CORIOLIS_EFFECTS)
+    cs_log_printf(CS_LOG_SETUP, "%s Model: Coriolis effect activated\n",
+                  navsto);
+
+  if (nsp->model_flag & CS_NAVSTO_MODEL_BOUSSINESQ)
+    cs_log_printf(CS_LOG_SETUP, "%s Model:"
+                  "Boussinesq approximation activated\n", navsto);
+  if (nsp->model_flag & CS_NAVSTO_MODEL_SOLIDIFICATION_BOUSSINESQ)
+    cs_log_printf(CS_LOG_SETUP, "%s Model:"
+                  " Boussinesq approximation for solidification activated\n",
+                  navsto);
+
+  /* Describe the space-time discretization */
+  cs_log_printf(CS_LOG_SETUP, "%s Coupling: %s\n",
+                navsto, cs_navsto_param_coupling_name[nsp->coupling]);
+
+  if (cs_navsto_param_is_steady(nsp))
+    cs_log_printf(CS_LOG_SETUP, "%s Time status: Steady\n", navsto);
+
+  else {
+
+    cs_log_printf(CS_LOG_SETUP, "%s Time status: Unsteady\n", navsto);
+
+    const char  *time_scheme = cs_param_get_time_scheme_name(nsp->time_scheme);
+    if (time_scheme != NULL) {
+      cs_log_printf(CS_LOG_SETUP, "%s Time scheme: %s", navsto, time_scheme);
+      if (nsp->time_scheme == CS_TIME_SCHEME_THETA)
+        cs_log_printf(CS_LOG_SETUP, " with value %f\n", nsp->theta);
+      else
+        cs_log_printf(CS_LOG_SETUP, "\n");
+    }
+    else
+      bft_error(__FILE__, __LINE__, 0, "%s: Invalid time scheme.", __func__);
+
   }
-  else if (nsp->model & CS_NAVSTO_MODEL_OSEEN) {
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  "Oseen velocity-pressure system");
-    assert(!(nsp->model & CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES));
-  }
-  else if (nsp->model & CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  "Incompressible Navier-Stokes velocity-pressure system");
 
-  if (nsp->model & CS_NAVSTO_MODEL_GRAVITY_EFFECTS)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  "Gravity effect activated");
+  const char *space_scheme = cs_param_get_space_scheme_name(nsp->space_scheme);
+  if (space_scheme != NULL)
+    cs_log_printf(CS_LOG_SETUP, "%s Space scheme: %s\n", navsto, space_scheme);
+  else
+    bft_error(__FILE__, __LINE__, 0, " %s: Undefined space scheme.", __func__);
 
-  if (nsp->model & CS_NAVSTO_MODEL_CORIOLIS_EFFECTS)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  "Coriolis effect activated");
+  if (nsp->model == CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES) {
 
-  if (nsp->model & CS_NAVSTO_MODEL_BOUSSINESQ)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  " Boussinesq approximation activated");
-  if (nsp->model & CS_NAVSTO_MODEL_SOLIDIFICATION_BOUSSINESQ)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Model: %s\n",
-                  " Boussinesq approximation for solidification activated");
+    /* Advection treament */
+    cs_log_printf(CS_LOG_SETUP, "%s Advection scheme: %s\n",
+                  navsto, cs_param_get_advection_scheme_name(nsp->adv_scheme));
+    cs_log_printf(CS_LOG_SETUP, "%s Advection formulation: %s\n",
+                  navsto, cs_param_get_advection_form_name(nsp->adv_form));
+    cs_log_printf(CS_LOG_SETUP, "%s Advection strategy: %s\n",
+                  navsto,
+                  cs_param_get_advection_strategy_name(nsp->adv_strategy));
+    cs_log_printf(CS_LOG_SETUP, "%s Advection extrapolation: %s\n",
+                  navsto,
+                  cs_param_get_advection_extrapol_name(nsp->adv_extrapol));
 
-  /* Describe the coupling algorithm */
-  cs_log_printf(CS_LOG_SETUP, "  * NavSto | Coupling: %s\n",
-                cs_navsto_param_coupling_name[nsp->coupling]);
-
-  /* Describe if needed the SLES settings for the non-linear algorithm */
-  if (nsp->model & CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES) {
-
+    /* Describe if needed the SLES settings for the non-linear algorithm */
     const char algo_name[] = "Picard";
     if (nsp->sles_param.nl_algo != CS_NAVSTO_NL_PICARD_ALGO)
-      bft_error(__FILE__, __LINE__, 0, "%s: Invalid non-linear algo.", __func__);
+      bft_error(__FILE__, __LINE__, 0, "%s: Invalid non-linear algo.",
+                __func__);
 
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | %s: rtol: %5.3e;"
-                  " atol: %5.3e; dtol: %5.3e\n",
-                  algo_name, nsp->sles_param.nl_algo_rtol,
+    cs_log_printf(CS_LOG_SETUP, "%s Non-linear algo: %s\n",
+                  navsto, algo_name);
+    cs_log_printf(CS_LOG_SETUP, "%s Tolerances of non-linear algo:"
+                  " rtol: %5.3e; atol: %5.3e; dtol: %5.3e\n",
+                  navsto, nsp->sles_param.nl_algo_rtol,
                   nsp->sles_param.nl_algo_atol, nsp->sles_param.nl_algo_dtol);
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | %s: Max.Iterations: %d\n",
-                  algo_name, nsp->sles_param.n_max_nl_algo_iter);
+    cs_log_printf(CS_LOG_SETUP, "%s Max of non-linear iterations: %d\n",
+                  navsto, nsp->sles_param.n_max_nl_algo_iter);
 
-  }
+  } /* Navier-Stokes */
 
   /* Describe the strategy to inverse the (inner) linear system */
   const cs_navsto_param_sles_t  nslesp = nsp->sles_param;
 
-  cs_log_printf(CS_LOG_SETUP, "  * NavSto | SLES.Strategy: ");
+  cs_log_printf(CS_LOG_SETUP, "%s SLES strategy: ", navsto);
   switch (nslesp.strategy) {
 
   case CS_NAVSTO_SLES_EQ_WITHOUT_BLOCK:
@@ -945,7 +1115,8 @@ cs_navsto_param_log(const cs_navsto_param_t    *nsp)
     cs_log_printf(CS_LOG_SETUP, "Additive block preconditioner + GMRES\n");
     break;
   case CS_NAVSTO_SLES_MULTIPLICATIVE_GMRES_BY_BLOCK:
-    cs_log_printf(CS_LOG_SETUP, "Multiplicative block preconditioner + GMRES\n");
+    cs_log_printf(CS_LOG_SETUP, "Multiplicative block preconditioner"
+                  " + GMRES\n");
     break;
   case CS_NAVSTO_SLES_DIAG_SCHUR_GMRES:
     cs_log_printf(CS_LOG_SETUP, "Diag. block preconditioner with Schur approx."
@@ -977,54 +1148,35 @@ cs_navsto_param_log(const cs_navsto_param_t    *nsp)
   }
 
   if (nsp->gd_scale_coef > 0)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Grad-div scaling %e\n",
-                  nsp->gd_scale_coef);
+    cs_log_printf(CS_LOG_SETUP, "%s Grad-div scaling %e\n",
+                  navsto, nsp->gd_scale_coef);
 
-  cs_log_printf(CS_LOG_SETUP, "  * NavSto | InnerLinear.Algo.Tolerances:"
+  cs_log_printf(CS_LOG_SETUP, "%s Tolerances of the inner solver:"
                 " rtol: %5.3e; atol: %5.3e; dtol: %5.3e\n",
-                nslesp.il_algo_rtol, nslesp.il_algo_atol, nslesp.il_algo_dtol);
+                navsto, nslesp.il_algo_rtol, nslesp.il_algo_atol,
+                nslesp.il_algo_dtol);
 
-  const char *space_scheme = cs_param_get_space_scheme_name(nsp->space_scheme);
-  if (nsp->space_scheme < CS_SPACE_N_SCHEMES)
-    cs_log_printf(CS_LOG_SETUP, "  * NavSto | Space scheme: %s\n",
-                  space_scheme);
-  else
-    bft_error(__FILE__, __LINE__, 0,
-              " %s: Undefined space scheme.", __func__);
-
-  if (!cs_navsto_param_is_steady(nsp)) {
-
-    const char  *time_scheme = cs_param_get_time_scheme_name(nsp->time_scheme);
-    if (time_scheme != NULL) {
-      cs_log_printf(CS_LOG_SETUP, "  * NavSto | Time scheme: %s", time_scheme);
-      if (nsp->time_scheme == CS_TIME_SCHEME_THETA)
-        cs_log_printf(CS_LOG_SETUP, " with value %f\n", nsp->theta);
-      else
-        cs_log_printf(CS_LOG_SETUP, "\n");
-    }
-    else
-      bft_error(__FILE__, __LINE__, 0, "%s: Invalid time scheme.", __func__);
-
-  }
+  /* Default quadrature type */
+  cs_log_printf(CS_LOG_SETUP, "%s Default quadrature: %s\n",
+                navsto, cs_quadrature_get_type_name(nsp->qtype));
 
   /* Initial conditions for the velocity */
-  char  prefix[256];
-
   cs_log_printf(CS_LOG_SETUP,
-                "  * NavSto | Velocity.Init.Cond | Number of definitions %2d\n",
-                nsp->n_velocity_ic_defs);
+                "%s Velocity.Init.Cond | Number of definitions %2d\n",
+                navsto, nsp->n_velocity_ic_defs);
 
+  char  prefix[256];
   for (int i = 0; i < nsp->n_velocity_ic_defs; i++) {
-    sprintf(prefix, "  * NavSto | Velocity.Init.Cond | Definition %2d", i);
+    sprintf(prefix, "%s Velocity.Init.Cond | Definition %2d",  navsto, i);
     cs_xdef_log(prefix, nsp->velocity_ic_defs[i]);
   }
 
   /* Initial conditions for the pressure */
   cs_log_printf(CS_LOG_SETUP,
-                "  * NavSto | Pressure.Init.Cond | Number of definitions: %d\n",
-                nsp->n_pressure_ic_defs);
+                "%s Pressure.Init.Cond | Number of definitions: %d\n",
+                navsto, nsp->n_pressure_ic_defs);
   for (int i = 0; i < nsp->n_pressure_ic_defs; i++) {
-    sprintf(prefix, "  * NavSto | Pressure.Init.Cond | Definition %2d", i);
+    sprintf(prefix, "%s Pressure.Init.Cond | Definition %2d",  navsto, i);
     cs_xdef_log(prefix, nsp->pressure_ic_defs[i]);
   }
 }
@@ -1064,6 +1216,35 @@ cs_navsto_param_get_velocity_param(const cs_navsto_param_t    *nsp)
   }
 
   return eqp;
+}
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Retrieve the name of the model system of equations
+ *
+ * \param[in]   model    a \ref cs_navsto_param_model_t
+ *
+ * \return the corresponding name
+ */
+/*----------------------------------------------------------------------------*/
+
+const char *
+cs_navsto_param_get_model_name(cs_navsto_param_model_t   model)
+{
+  switch (model) {
+
+  case CS_NAVSTO_MODEL_STOKES:
+  case CS_NAVSTO_MODEL_OSEEN:
+  case CS_NAVSTO_MODEL_INCOMPRESSIBLE_NAVIER_STOKES:
+    return cs_navsto_param_model_name[model];
+
+  default:
+    bft_error(__FILE__, __LINE__, 0, "%s: Invalid model.", __func__);
+    break;
+
+  }
+
+  return NULL;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1216,16 +1397,16 @@ cs_navsto_add_velocity_ic_by_analytic(cs_navsto_param_t      *nsp,
     nsp->velocity_ic_is_owner = true;
 
     /* Add a new cs_xdef_t structure */
-    int z_id = 0;
-    if (z_name != NULL && strlen(z_name) > 0)
-      z_id = (cs_volume_zone_by_name(z_name))->id;
+    int z_id = cs_get_vol_zone_id(z_name);
 
     cs_flag_t  meta_flag = 0;
     if (z_id == 0)
       meta_flag |= CS_FLAG_FULL_LOC;
 
-    cs_xdef_analytic_input_t  anai = {.func = analytic,
-                                      .input = input };
+    cs_xdef_analytic_context_t  anai = { .z_id = z_id,
+                                         .func = analytic,
+                                         .input = input,
+                                         .free_input = NULL };
 
     d = cs_xdef_volume_create(CS_XDEF_BY_ANALYTIC_FUNCTION,
                               3,  /* dim */
@@ -1323,23 +1504,23 @@ cs_navsto_add_pressure_ic_by_analytic(cs_navsto_param_t      *nsp,
     bft_error(__FILE__, __LINE__, 0, _err_empty_nsp, __func__);
 
   /* Add a new cs_xdef_t structure */
-  int z_id = 0;
-  if (z_name != NULL && strlen(z_name) > 0)
-    z_id = (cs_volume_zone_by_name(z_name))->id;
+  int z_id = cs_get_vol_zone_id(z_name);
 
   cs_flag_t  meta_flag = 0;
   if (z_id == 0)
     meta_flag |= CS_FLAG_FULL_LOC;
 
-  cs_xdef_analytic_input_t  anai = {.func = analytic,
-                                    .input = input };
+  cs_xdef_analytic_context_t  ac = { .z_id = z_id,
+                                     .func = analytic,
+                                     .input = input,
+                                     .free_input = NULL };
 
   cs_xdef_t  *d = cs_xdef_volume_create(CS_XDEF_BY_ANALYTIC_FUNCTION,
                                         1,  /* dim */
                                         z_id,
                                         0,  /* state flag */
                                         meta_flag,
-                                        &anai);
+                                        &ac);
 
   /* Assign the default quadrature type of the Navier-Stokes module to this
    * definition (this can be modified by the user if the same call is
@@ -1505,16 +1686,18 @@ cs_navsto_set_outlets(cs_navsto_param_t    *nsp)
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief  Define the pressure field on a boundary using a uniform value.
+ * \brief  Set the pressure field on a boundary using a uniform value.
  *
  * \param[in]      nsp       pointer to a \ref cs_navsto_param_t structure
  * \param[in]      z_name    name of the associated zone (if NULL or "" all
  *                           boundary faces are considered)
  * \param[in]      value     value to set
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
  */
 /*----------------------------------------------------------------------------*/
 
-void
+cs_xdef_t *
 cs_navsto_set_pressure_bc_by_value(cs_navsto_param_t    *nsp,
                                    const char           *z_name,
                                    cs_real_t            *values)
@@ -1563,7 +1746,7 @@ cs_navsto_set_pressure_bc_by_value(cs_navsto_param_t    *nsp,
   }
 
   /* Add a new cs_xdef_t structure. For the momentum equation, this is a
-   * homogeneous BC for the velocity */
+   * homogeneous Neumann BC for the velocity */
   cs_real_33_t  zero = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
 
   cs_xdef_t  *du = cs_xdef_boundary_create(CS_XDEF_BY_VALUE,
@@ -1582,6 +1765,8 @@ cs_navsto_set_pressure_bc_by_value(cs_navsto_param_t    *nsp,
   cs_equation_param_t *u_eqp = _get_momentum_param(nsp);
   assert(u_eqp != NULL);
   cs_equation_add_xdef_bc(u_eqp, du);
+
+  return dp;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1593,10 +1778,12 @@ cs_navsto_set_pressure_bc_by_value(cs_navsto_param_t    *nsp,
  * \param[in]      z_name    name of the associated zone (if NULL or "" all
  *                           boundary faces are considered)
  * \param[in]      values    array of three real values
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
  */
 /*----------------------------------------------------------------------------*/
 
-void
+cs_xdef_t *
 cs_navsto_set_velocity_wall_by_value(cs_navsto_param_t    *nsp,
                                      const char           *z_name,
                                      cs_real_t            *values)
@@ -1638,6 +1825,8 @@ cs_navsto_set_velocity_wall_by_value(cs_navsto_param_t    *nsp,
   cs_equation_param_t *eqp = _get_momentum_param(nsp);
   assert(eqp != NULL);
   cs_equation_add_xdef_bc(eqp, d);
+
+  return d;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1649,10 +1838,12 @@ cs_navsto_set_velocity_wall_by_value(cs_navsto_param_t    *nsp,
  * \param[in]      z_name    name of the associated zone (if NULL or "" all
  *                           boundary faces are considered)
  * \param[in]      values    array of three real values
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
  */
 /*----------------------------------------------------------------------------*/
 
-void
+cs_xdef_t *
 cs_navsto_set_velocity_inlet_by_value(cs_navsto_param_t    *nsp,
                                       const char           *z_name,
                                       cs_real_t            *values)
@@ -1695,6 +1886,8 @@ cs_navsto_set_velocity_inlet_by_value(cs_navsto_param_t    *nsp,
   cs_equation_param_t *eqp = _get_momentum_param(nsp);
   assert(eqp != NULL);
   cs_equation_add_xdef_bc(eqp, d);
+
+  return d;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -1707,10 +1900,12 @@ cs_navsto_set_velocity_inlet_by_value(cs_navsto_param_t    *nsp,
  *                           boundary faces are considered)
  * \param[in]      ana       pointer to an analytical function
  * \param[in]      input     NULL or pointer to a structure cast on-the-fly
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
  */
 /*----------------------------------------------------------------------------*/
 
-void
+cs_xdef_t *
 cs_navsto_set_velocity_inlet_by_analytic(cs_navsto_param_t    *nsp,
                                          const char           *z_name,
                                          cs_analytic_func_t   *ana,
@@ -1738,18 +1933,94 @@ cs_navsto_set_velocity_inlet_by_analytic(cs_navsto_param_t    *nsp,
        " Please check your settings.", __func__, z_name);
 
   /* Add a new cs_xdef_t structure */
-  cs_xdef_analytic_input_t  anai = {.func = ana, .input = input };
+  cs_xdef_analytic_context_t  ac = { .z_id = z_id,
+                                     .func = ana,
+                                     .input = input,
+                                     .free_input = NULL };
+
   cs_xdef_t  *d = cs_xdef_boundary_create(CS_XDEF_BY_ANALYTIC_FUNCTION,
                                           3,    /* dim */
                                           z_id,
                                           0,    /* state */
                                           CS_CDO_BC_DIRICHLET,
-                                          &anai);
+                                          &ac);
 
   /* Assign the default quadrature type of the Navier-Stokes module to this
    * definition (this can be modified by the user if the same call is
    * performed in cs_user_finalize_setup()) */
   cs_xdef_set_quadrature(d, nsp->qtype);
+
+  int  new_id = nsp->n_velocity_bc_defs;
+  nsp->n_velocity_bc_defs += 1;
+  BFT_REALLOC(nsp->velocity_bc_defs, nsp->n_velocity_bc_defs, cs_xdef_t *);
+  nsp->velocity_bc_defs[new_id] = d;
+
+  cs_equation_param_t *eqp = _get_momentum_param(nsp);
+  cs_equation_add_xdef_bc(eqp, d);
+
+  return d;
+}
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Define the velocity field for an inlet boundary using an array
+ *         of values
+ *
+ * \param[in]      nsp       pointer to a \ref cs_navsto_param_t structure
+ * \param[in]      z_name    name of the associated zone (if NULL or "" all
+ *                           boundary faces are considered)
+ * \param[in]      loc       information to know where are located values
+ * \param[in]      array     pointer to an array
+ * \param[in]      is_owner  transfer the lifecycle to the cs_xdef_t structure
+ *                           (true or false)
+ * \param[in]      index     optional pointer to the array index
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_navsto_set_velocity_inlet_by_array(cs_navsto_param_t    *nsp,
+                                      const char           *z_name,
+                                      cs_flag_t             loc,
+                                      cs_real_t            *array,
+                                      bool                  is_owner,
+                                      cs_lnum_t            *index)
+{
+  if (nsp == NULL)
+    bft_error(__FILE__, __LINE__, 0, _err_empty_nsp, __func__);
+
+  int  z_id = cs_get_bdy_zone_id(z_name);
+  if (z_id < 0)
+    bft_error(__FILE__, __LINE__, 0,
+              " %s: Zone \"%s\" does not exist.\n"
+              " Please check your settings.", __func__, z_name);
+
+  int  bdy_id = cs_boundary_id_by_zone_id(nsp->boundaries, z_id);
+  if (bdy_id < 0)
+    bft_error(__FILE__, __LINE__, 0,
+              " %s: Zone \"%s\" does not belong to an existing boundary.\n"
+              " Please check your settings.", __func__, z_name);
+
+  if (!(nsp->boundaries->types[bdy_id] & CS_BOUNDARY_IMPOSED_VEL))
+    bft_error
+      (__FILE__, __LINE__, 0,
+       " %s: Zone \"%s\" is not related to an imposed velocity boundary.\n"
+       " Please check your settings.", __func__, z_name);
+
+  cs_xdef_array_context_t  context = {.z_id = z_id,
+                                      .stride = 3,
+                                      .loc = loc,
+                                      .values = array,
+                                      .is_owner = is_owner,
+                                      .index = index };
+
+  cs_xdef_t  *d = cs_xdef_boundary_create(CS_XDEF_BY_ARRAY,
+                                          3,
+                                          z_id,
+                                          CS_FLAG_STATE_FACEWISE,
+                                          CS_CDO_BC_DIRICHLET,
+                                          (void *)&context);
 
   int  new_id = nsp->n_velocity_bc_defs;
 
@@ -1758,7 +2029,80 @@ cs_navsto_set_velocity_inlet_by_analytic(cs_navsto_param_t    *nsp,
   nsp->velocity_bc_defs[new_id] = d;
 
   cs_equation_param_t *eqp = _get_momentum_param(nsp);
+  assert(eqp != NULL);
   cs_equation_add_xdef_bc(eqp, d);
+
+  return d;
+}
+
+/*----------------------------------------------------------------------------*/
+/*!
+ * \brief  Define the velocity field for an inlet boundary using a DoF function
+ *
+ * \param[in]  nsp         pointer to a \ref cs_navsto_param_t structure
+ * \param[in]  z_name      name of the associated zone (if NULL or "" all
+ *                         boundary faces are considered)
+ * \param[in]  func        pointer to a \ref cs_dof_function_t
+ * \param[in]  func_input  NULL or pointer to a structure cast on-the-fly
+ *
+ * \return a pointer to the new \ref cs_xdef_t structure
+ */
+/*----------------------------------------------------------------------------*/
+
+cs_xdef_t *
+cs_navsto_set_velocity_inlet_by_dof_func(cs_navsto_param_t    *nsp,
+                                         const char           *z_name,
+                                         cs_dof_func_t        *func,
+                                         void                 *func_input)
+{
+  if (nsp == NULL)
+    bft_error(__FILE__, __LINE__, 0, _err_empty_nsp, __func__);
+
+  int  z_id = cs_get_bdy_zone_id(z_name);
+  if (z_id < 0)
+    bft_error(__FILE__, __LINE__, 0,
+              " %s: Zone \"%s\" does not exist.\n"
+              " Please check your settings.", __func__, z_name);
+
+  int  bdy_id = cs_boundary_id_by_zone_id(nsp->boundaries, z_id);
+  if (bdy_id < 0)
+    bft_error(__FILE__, __LINE__, 0,
+              " %s: Zone \"%s\" does not belong to an existing boundary.\n"
+              " Please check your settings.", __func__, z_name);
+
+  if (!(nsp->boundaries->types[bdy_id] & CS_BOUNDARY_IMPOSED_VEL))
+    bft_error
+      (__FILE__, __LINE__, 0,
+       " %s: Zone \"%s\" is not related to an imposed velocity boundary.\n"
+       " Please check your settings.", __func__, z_name);
+
+  /* Add a new cs_xdef_t structure */
+  cs_xdef_dof_context_t  dc = { .z_id = z_id,
+                                .func = func,
+                                .input = func_input,
+                                .free_input = NULL };
+
+  cs_xdef_t  *d = cs_xdef_boundary_create(CS_XDEF_BY_DOF_FUNCTION,
+                                          3,    /* dim */
+                                          z_id,
+                                          0,    /* state */
+                                          CS_CDO_BC_DIRICHLET,
+                                          &dc);
+
+  /* Assign the default quadrature type of the Navier-Stokes module to this
+   * definition (this can be modified by the user if the same call is
+   * performed in cs_user_finalize_setup()) */
+  cs_xdef_set_quadrature(d, nsp->qtype);
+
+  int  new_id = nsp->n_velocity_bc_defs;
+  nsp->n_velocity_bc_defs += 1;
+  BFT_REALLOC(nsp->velocity_bc_defs, nsp->n_velocity_bc_defs, cs_xdef_t *);
+  nsp->velocity_bc_defs[new_id] = d;
+
+  cs_equation_param_t  *eqp = _get_momentum_param(nsp);
+  cs_equation_add_xdef_bc(eqp, d);
+
+  return d;
 }
 
 /*----------------------------------------------------------------------------*/

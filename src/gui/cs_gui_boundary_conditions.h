@@ -61,11 +61,7 @@ BEGIN_C_DECLS
  * *****************
  *----------------------------------------------------------------------------*/
 
-void CS_PROCF (uiclim, UICLIM)(const int  *idarcy,
-                               const int  *nozppm,
-                               const int  *ncharm,
-                               const int  *ncharb,
-                               const int  *nclpch,
+void CS_PROCF (uiclim, UICLIM)(const int  *nozppm,
                                int        *iqimp,
                                int        *icalke,
                                int        *ientat,
@@ -118,7 +114,8 @@ void CS_PROCF (uiclve, UICLVE)(const int  *nozppm,
 /*!
  * \brief Define boundary conditions based on setup file.
  *
- * \param[in, out]  bdy   main boundaries structure to update
+ * \param[in, out]  bdy   boundaries structure to update
+ *                        (if NULL, default to cs_glob_domain->boundaries)
  */
 /*----------------------------------------------------------------------------*/
 

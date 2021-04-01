@@ -156,6 +156,27 @@ typedef struct {
 
   /*!
    * @}
+   * @name Advection quantities
+   * Members related to the advection
+   * @{
+   *
+   *  \var adv_field
+   *  Pointer to the cs_adv_field_t related to the Navier-Stokes eqs (Shared)
+   */
+  cs_adv_field_t           *adv_field;
+
+  /*! \var mass_flux_array
+   *  Current values of the mass flux at primal faces (Shared)
+   */
+  cs_real_t                *mass_flux_array;
+
+  /*! \var mass_flux_array_pre
+   *  Previous values of the mass flux at primal faces (Shared)
+   */
+  cs_real_t                *mass_flux_array_pre;
+
+  /*!
+   * @}
    * @name Boundary conditions (BC) management
    * Routines and elements used for enforcing the BCs
    * @{
@@ -243,7 +264,6 @@ static const cs_matrix_structure_t  *cs_shared_pre_ms;
  *
  * \param[in]      sc          pointer to a cs_cdofb_predco_t structure
  * \param[in]      eqp         pointer to a cs_equation_param_t structure
- * \param[in]      eqc         context for this kind of discretization
  * \param[in]      cm          pointer to a cellwise view of the mesh
  * \param[in]      bf_type     type of boundary for the boundary face
  * \param[in]      diff_pty    pointer to \ref cs_property_data_t for diffusion
@@ -255,7 +275,6 @@ static const cs_matrix_structure_t  *cs_shared_pre_ms;
 static void
 _predco_apply_bc_partly(const cs_cdofb_predco_t       *sc,
                         const cs_equation_param_t     *eqp,
-                        const cs_cdofb_scaleq_t       *eqc,
                         const cs_cell_mesh_t          *cm,
                         const cs_boundary_type_t      *bf_type,
                         const cs_property_data_t      *diff_pty,
@@ -319,9 +338,6 @@ _predco_apply_bc_partly(const cs_cdofb_predco_t       *sc,
       /* default: nothing to do (case of a "natural" outlet) */
 
     } /* Loop on boundary faces */
-
-    if (cs_equation_param_has_convection(eqp)) /* Always weakly enforced */
-      eqc->adv_func_bc(eqp, cm, cb, csys);
 
 #if defined(DEBUG) && !defined(NDEBUG) && CS_CDOFB_PREDCO_DBG > 1
     if (cs_dbg_cw_test(eqp, cm, csys))
@@ -462,24 +478,24 @@ _solve_pressure_correction(const cs_mesh_t              *mesh,
         case CS_PARAM_REDUCTION_DERHAM:
           cs_xdef_eval_at_b_faces_by_analytic(z->n_elts,
                                               z->elt_ids,
-                                              false, /* compact output */
+                                              false, /* dense output */
                                               mesh,
                                               connect,
                                               quant,
                                               time_eval,
-                                              pdef->input,
+                                              pdef->context,
                                               cc->bdy_pressure_incr);
           break;
 
         case CS_PARAM_REDUCTION_AVERAGE:
           cs_xdef_eval_avg_at_b_faces_by_analytic(z->n_elts,
                                                   z->elt_ids,
-                                                  false, /* compact output */
+                                                  false, /* dense output */
                                                   mesh,
                                                   connect,
                                                   quant,
                                                   time_eval,
-                                                  pdef->input,
+                                                  pdef->context,
                                                   pdef->qtype,
                                                   pdef->dim,
                                                   cc->bdy_pressure_incr);
@@ -748,6 +764,9 @@ cs_cdofb_predco_init_common(const cs_cdo_quantities_t     *quant,
  * \brief  Initialize a \ref cs_cdofb_predco_t structure
  *
  * \param[in] nsp         pointer to a \ref cs_navsto_param_t structure
+ * \param[in] adv_field   pointer to \ref cs_adv_field_t structure
+ * \param[in] mflux       current values of the mass flux across primal faces
+ * \param[in] mflux_pre   current values of the mass flux across primal faces
  * \param[in] fb_type     type of boundary for each boundary face
  * \param[in] nsc_input   pointer to a \ref cs_navsto_predco_t structure
  *
@@ -756,9 +775,12 @@ cs_cdofb_predco_init_common(const cs_cdo_quantities_t     *quant,
 /*----------------------------------------------------------------------------*/
 
 void *
-cs_cdofb_predco_init_scheme_context(const cs_navsto_param_t    *nsp,
-                                    cs_boundary_type_t         *fb_type,
-                                    void                       *nsc_input)
+cs_cdofb_predco_init_scheme_context(const cs_navsto_param_t   *nsp,
+                                    cs_adv_field_t            *adv_field,
+                                    cs_real_t                 *mflux,
+                                    cs_real_t                 *mflux_pre,
+                                    cs_boundary_type_t        *fb_type,
+                                    void                      *nsc_input)
 {
   /* Sanity checks */
   assert(nsp != NULL && nsc_input != NULL);
@@ -776,7 +798,11 @@ cs_cdofb_predco_init_scheme_context(const cs_navsto_param_t    *nsp,
 
   BFT_MALLOC(sc, 1, cs_cdofb_predco_t);
 
-  sc->coupling_context = cc; /* shared with cs_navsto_system_t */
+  /* Quantities shared with the cs_navsto_system_t structure */
+  sc->coupling_context = cc;
+  sc->adv_field = adv_field;
+  sc->mass_flux_array = mflux;
+  sc->mass_flux_array_pre = mflux_pre;
 
   /* Quick access to the main fields */
   sc->velocity = cs_field_by_name("velocity");
@@ -1094,6 +1120,7 @@ cs_cdofb_predco_compute_implicit(const cs_mesh_t              *mesh,
       cs_cdofb_vecteq_init_cell_system(cm, mom_eqp, mom_eqb,
                                        dir_values, enforced_ids,
                                        mom_eqc->face_values, vel_c,
+                                       NULL, NULL, /* no n-1 state is given */
                                        csys, cb);
 
       /* 1- SETUP THE NAVSTO LOCAL BUILDER *
@@ -1136,7 +1163,7 @@ cs_cdofb_predco_compute_implicit(const cs_mesh_t              *mesh,
       /* First part of the BOUNDARY CONDITIONS
        *                   ===================
        * Apply a part of BC before the time scheme */
-      _predco_apply_bc_partly(sc, mom_eqp, mom_eqc, cm, nsb.bf_type,
+      _predco_apply_bc_partly(sc, mom_eqp, cm, nsb.bf_type,
                               diff_hodge->pty_data, csys, cb);
 
       /* 4- UNSTEADY TERM + TIME SCHEME
@@ -1227,7 +1254,8 @@ cs_cdofb_predco_compute_implicit(const cs_mesh_t              *mesh,
   cs_sles_t  *sles = cs_sles_find_or_add(mom_eqp->sles_param.field_id, NULL);
 
   cs_equation_solve_scalar_system(3*n_faces,
-                                  mom_eqp,
+                                  mom_eqp->name,
+                                  mom_eqp->sles_param,
                                   matrix,
                                   mom_rs,
                                   normalization,

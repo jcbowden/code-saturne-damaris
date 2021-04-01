@@ -26,8 +26,8 @@
 !______________________________________________________________________________.
 !  mode           name          role                                           !
 !______________________________________________________________________________!
-!> \param[in]   imode       IMODE = 0 : READING FOR DIMENSIONS ONLY
-!>                          IMODE = 1 : READING ACTUAL METEO DATA
+!> \param[in]   imode        0: reading for dimensions only
+!>                           1: reading actual meteo data
 !-------------------------------------------------------------------------------
 subroutine atlecm ( imode )
 
@@ -43,6 +43,7 @@ use cstphy
 use ppppar
 use optcal
 use atincl
+use ctincl, only: cp_a, cp_v
 use cs_c_bindings
 
 !===============================================================================
@@ -58,6 +59,8 @@ integer           imode
 
 ! Local variables
 
+character(len=80) :: ficmet
+
 integer itp, ii, ios, k
 integer year, quant,hour,minute, month, day
 integer ih2o
@@ -67,6 +70,7 @@ double precision sjday, jday
 double precision rap,rscp,tmoy, rhmoy
 double precision ztop, zzmax, tlkelv, pptop, dum
 double precision rhum,q0,q1
+double precision cpvcpa
 
 character(len=80) :: ccomnt,oneline
 character(len=1)  :: csaute
@@ -86,6 +90,8 @@ endif
 CSAUTE = '/'
 
 ! --> Opens the meteo file
+call atmo_get_meteo_file_name(ficmet)
+
 open (unit=impmet, file=ficmet,                                  &
      status='old', form='formatted', access='sequential',       &
      iostat=ios, err=99)
@@ -93,6 +99,8 @@ rewind(unit=impmet, err=99)
 
 itp=0
 ih2o = 0
+
+cpvcpa = cp_v / cp_a
 
 if (imode.eq.1) then
   rscp=rair/cp0
@@ -149,7 +157,7 @@ else
     call csexit (1)
   endif
 
-  ! --> if the date and time are not completed in usati1.f90,
+  ! --> if the date and time are not completed in usppmo / cs_user_model
   !     the date and time of the first meteo profile are taken as the
   !     starting time of the simulation
 
@@ -350,7 +358,7 @@ if (imode.eq.1) then
     do k = 2, nbmaxt
       tmoy = 0.5d0*(ttmet(k-1,itp) + ttmet(k,itp)) + tkelvi
 
-      if(ippmod(iatmos).eq.2) then ! take liquid water into account
+      if (ippmod(iatmos).eq.2) then ! take liquid water into account
         q0 = min( qvmet(k-1,itp), cs_air_yw_sat( ttmet(k-1,itp) &
             , phmet(k-1,itp)))
         q1 = min( qvmet(k  ,itp), cs_air_yw_sat( ttmet(k  ,itp) &
@@ -455,7 +463,7 @@ endif
 ! 9. Printings
 !===============================================================================
 
-if (imode.eq.1) then
+if (imode.eq.1.and.imeteo.eq.1) then
   if (itp.eq.1) then
     write(nfecra, *)
     write(nfecra, *) '==================================================='

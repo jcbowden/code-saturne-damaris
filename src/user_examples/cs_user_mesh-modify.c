@@ -102,7 +102,7 @@ cs_user_mesh_modify(cs_mesh_t  *mesh)
 
     /* Set mesh modification flag if it should be saved for future re-use. */
 
-    mesh->modified = 1;
+    mesh->modified |= CS_MESH_MODIFIED;
   }
   /*! [mesh_modify_coords] */
 
@@ -117,7 +117,7 @@ cs_user_mesh_modify(cs_mesh_t  *mesh)
 
     const char criteria[] = "outlet";
 
-    /* Select boudary faces */
+    /* Select boundary faces */
 
     cs_lnum_t   n_selected_faces = 0;
     cs_lnum_t  *selected_faces = NULL;
@@ -225,7 +225,7 @@ cs_user_mesh_modify(cs_mesh_t  *mesh)
 
     cs_lnum_t n_prev_cells = mesh->n_cells ;
 
-    /* Select boudary faces */
+    /* Select boundary faces */
 
     cs_lnum_t   n_selected_faces = 0;
     cs_lnum_t  *selected_faces = NULL;
@@ -297,7 +297,7 @@ cs_user_mesh_modify(cs_mesh_t  *mesh)
 
     /* Mark mesh as modified to save it */
 
-    mesh->modified = 1;
+    mesh->modified |= CS_MESH_MODIFIED;
   }
   /*! [mesh_modify_groups_1] */
 
@@ -325,7 +325,7 @@ cs_user_mesh_modify(cs_mesh_t  *mesh)
 
     /* Mark mesh as modified to save it */
 
-    mesh->modified = 1;
+    mesh->modified |= CS_MESH_MODIFIED;
   }
   /*! [mesh_modify_groups_2] */
 
@@ -408,6 +408,43 @@ cs_user_mesh_modify(cs_mesh_t  *mesh)
     BFT_FREE(selected_cells);
   }
   /*! [mesh_modify_refine_1] */
+
+  /* Remove cells from a selection
+   * Note: if present, remove periodicity info first */
+  /*! [mesh_modify_remove_cells] */
+  {
+    cs_lnum_t   n_selected_elts = 0;
+    cs_lnum_t  *selected_elts = NULL;
+
+    const char criteria[] = "box[-250, -250, 0, 250, 250, 100]";
+
+    BFT_MALLOC(selected_elts, mesh->n_cells, cs_lnum_t);
+
+    cs_selector_get_cell_list(criteria,
+                              &n_selected_elts,
+                              selected_elts);
+
+    char *flag;
+    BFT_MALLOC(flag, mesh->n_cells, char);
+
+    for (cs_lnum_t i = 0; i < mesh->n_cells; i++) {
+      flag[i] = 0;
+    }
+
+    for (cs_lnum_t i = 0; i < n_selected_elts; i++) {
+      flag[selected_elts[i]] = 1;
+    }
+
+    cs_mesh_remove_cells(mesh, flag, "[Building]");
+
+    BFT_FREE(selected_elts);
+    BFT_FREE(flag);
+
+    /* Mark for re-partitioning */
+    mesh->modified |= CS_MESH_MODIFIED_BALANCE;
+  }
+  /*! [mesh_modify_remove_cells] */
+
 }
 
 /*----------------------------------------------------------------------------*/

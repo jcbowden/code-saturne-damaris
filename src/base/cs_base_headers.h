@@ -63,6 +63,7 @@
 #include "cs_internal_coupling.h"
 #include "cs_log.h"
 #include "cs_map.h"
+#include "cs_mass_source_terms.h"
 #include "cs_math.h"
 #include "cs_measures_util.h"
 #include "cs_notebook.h"
@@ -87,6 +88,7 @@
 #include "cs_restart.h"
 #include "cs_restart_map.h"
 #include "cs_rotation.h"
+#include "cs_runaway_check.h"
 #include "cs_sat_coupling.h"
 #include "cs_selector.h"
 #include "cs_stokes_model.h"
@@ -99,16 +101,16 @@
 #include "cs_timer_stats.h"
 #include "cs_tree.h"
 #include "cs_turbomachinery.h"
+#include "cs_volume_mass_injection.h"
 #include "cs_volume_zone.h"
 #include "cs_vof.h"
 #include "cs_wall_functions.h"
 #include "cs_zone.h"
 
-#include "cs_medcoupling_remapper.hxx"
-#include "cs_medcoupling_intersector.hxx"
-#include "cs_paramedmem_remapper.hxx"
-#include "cs_paramedmem_coupling.hxx"
-
+#include "cs_medcoupling_remapper.h"
+#include "cs_medcoupling_intersector.h"
+#include "cs_paramedmem_remapper.h"
+#include "cs_paramedmem_coupling.h"
 
 /*----------------------------------------------------------------------------*/
 

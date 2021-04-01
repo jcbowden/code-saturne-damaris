@@ -120,7 +120,7 @@ cs_meg_initialization(const cs_zone_t *zone,
 'ibm':"""void
 cs_meg_immersed_boundaries_inout(int         *ipenal,
                                  const char  *object_name,
-                                 cs_real_3_t  xyz,
+                                 cs_real_t    xyz[3],
                                  cs_real_t    t)
 {
 """,
@@ -265,16 +265,26 @@ class meg_to_c_interpreter:
 
     #---------------------------------------------------------------------------
 
-    def __init__(self, case, create_functions=True, module_name=None):
+    def __init__(self,
+                 case,
+                 create_functions=True,
+                 module_name=None,
+                 wdir=None):
 
         self.case = case
+        self.wdir = wdir
+
         if module_name:
             self.module_name = module_name
         else:
             self.module_name = case.module_name()
 
-        self.data_path = os.path.join(case['case_path'], 'DATA')
-        self.tmp_path = os.path.join(self.data_path, 'tmp')
+        if not self.wdir:
+            data_path = os.path.join(case['case_path'], 'DATA')
+        else:
+            data_path = self.wdir
+
+        self.tmp_path = os.path.join(data_path, 'tmp')
 
         # function name to file name dictionary
         self.funcs = {'vol': {},
@@ -336,7 +346,8 @@ class meg_to_c_interpreter:
                    symbols,
                    known_fields,
                    condition = None,
-                   source_type = None):
+                   source_type = None,
+                   element_type= "center"):
 
         # Creating a unique function name based on the zone and variable name
         fkey = '::'.join([zone_name, name])
@@ -351,7 +362,10 @@ class meg_to_c_interpreter:
                                    'sym': symbols,
                                    'knf': known_fields,
                                    'cnd': condition,
-                                   'tpe': source_type}
+                                   'tpe': source_type,
+                                   'elt': element_type}
+        if self.funcs[ftype][fkey]['elt'] not in ('center', 'vertex'):
+            self.funcs[ftype][fkey]['elt'] = 'center'
 
         self.funcs[ftype][fkey]['lines'] = break_expression(expression)
 
@@ -428,12 +442,11 @@ class meg_to_c_interpreter:
                 if lnn in fn:
                     fn = fl
 
-                glob_tokens[fl] = \
-                    'const cs_real_t *%s_vals = cs_field_by_name("%s")->val;' \
-                    % (fl, fn)
+            glob_tokens[fl] = \
+            'const cs_real_t *%s_vals = cs_field_by_name("%s")->val;' \
+            % (fl, fn)
 
-                loop_tokens[fl] = 'const cs_real_t %s = %s_vals[c_id];' \
-                        % (fl, fl)
+            loop_tokens[fl] = 'const cs_real_t %s = %s_vals[c_id];' % (fl, fl)
 
         # ------------------------
 
@@ -488,6 +501,7 @@ class meg_to_c_interpreter:
         symbols      = func_params['sym']
         known_fields = func_params['knf']
         cname        = func_params['cnd']
+        element_type = func_params['elt']
 
         if type(func_params['req'][0]) == tuple:
             required = [r[0] for r in func_params['req']]
@@ -519,8 +533,35 @@ class meg_to_c_interpreter:
         need_coords = False
 
         # allocate the new array
+
+        val_str    = 'zone->n_elts'
+        ids_str    = 'zone->elt_ids'
+        elt_id_str = 'f_id'
+        if element_type == 'vertex':
+            val_str    = 'n_vtx'
+            ids_str    = 'vtx_ids'
+            elt_id_str = 'v_id'
+
         if need_for_loop:
-            usr_defs += ntabs*tab + 'const cs_lnum_t vals_size = zone->n_elts * %d;\n' % (len(required))
+            # If values are stored for vertices, change selectors.
+            if element_type == 'vertex':
+
+                usr_defs += ntabs*tab + 'cs_lnum_t  %s;\n' % (val_str)
+                usr_defs += ntabs*tab + 'cs_lnum_t *%s;\n' % (ids_str)
+                usr_defs += ntabs*tab
+                usr_defs += 'BFT_MALLOC(%s, cs_glob_mesh->n_vertices, cs_lnum_t);\n\n' % (ids_str)
+
+                # Vertices selector function
+                b_f_vtx_sel_fct = 'cs_selector_get_b_face_vertices_list_by_ids'
+                b_f_vtx_sel_tab = ' '*(len(b_f_vtx_sel_fct)+1)
+
+                usr_defs += ntabs*tab + '%s(zone->n_elts,\n' % (b_f_vtx_sel_fct)
+                usr_defs += ntabs*tab + '%szone->elt_ids,\n' % (b_f_vtx_sel_tab)
+                usr_defs += ntabs*tab + '%s&%s,\n' % (b_f_vtx_sel_tab, val_str)
+                usr_defs += ntabs*tab + '%s%s);\n' % (b_f_vtx_sel_tab, ids_str)
+
+            usr_defs += ntabs*tab + 'const cs_lnum_t vals_size = %s * %d;\n' \
+                    % (val_str, len(required))
         else:
             usr_defs += ntabs*tab + 'const cs_lnum_t vals_size = %d;\n' % (len(required))
 
@@ -537,10 +578,15 @@ class meg_to_c_interpreter:
         # Coordinates
         for kc in coords:
             ic = coords.index(kc)
-            loop_tokens[kc] = 'const cs_real_t %s = xyz[f_id][%s];' % (kc, str(ic))
+            loop_tokens[kc] = 'const cs_real_t %s = xyz[%s][%s];' \
+                    % (kc, elt_id_str, str(ic))
 
-        glob_tokens['xyz'] = \
-        'const cs_real_3_t *xyz = (cs_real_3_t *)cs_glob_mesh_quantities->b_face_cog;'
+        if element_type == 'vertex':
+            glob_tokens['xyz'] = \
+            'const cs_real_3_t *xyz = (cs_real_3_t *)cs_glob_mesh->vtx_coord;'
+        else:
+            glob_tokens['xyz'] = \
+            'const cs_real_3_t *xyz = (cs_real_3_t *)cs_glob_mesh_quantities->b_face_cog;'
 
         # Notebook variables
         for kn in self.notebook.keys():
@@ -552,7 +598,7 @@ class meg_to_c_interpreter:
             glob_tokens[f[0]] = \
             'const cs_real_t *%s_vals = cs_field_by_name("%s")->val;' % (f[0], f[1])
             loop_tokens[f[0]] = \
-            'const cs_real_t %s = %s_vals[f_id];' % (f[0], f[0])
+            'const cs_real_t %s = %s_vals[%s];' % (f[0], f[0], elt_id_str)
         # ------------------------
 
         if need_for_loop:
@@ -580,13 +626,16 @@ class meg_to_c_interpreter:
         usr_blck += usr_defs
 
         if need_for_loop:
-            usr_blck += 2*tab + 'for (cs_lnum_t e_id = 0; e_id < zone->n_elts; e_id++) {\n'
-            usr_blck += 3*tab + 'cs_lnum_t f_id = zone->elt_ids[e_id];\n'
+            usr_blck += 2*tab + 'for (cs_lnum_t e_id = 0; e_id < %s; e_id++) {\n' % (val_str)
+            usr_blck += 3*tab + 'cs_lnum_t %s = %s[e_id];\n' % (elt_id_str, ids_str)
 
         usr_blck += usr_code
 
         if need_for_loop:
             usr_blck += 2*tab + '}\n'
+
+        if element_type == 'vertex':
+            usr_blck += 2*tab + 'BFT_FREE(%s);\n' % ids_str
 
         usr_blck += tab + '}\n'
 
@@ -604,6 +653,7 @@ class meg_to_c_interpreter:
 
         expression   = func_params['exp']
         symbols      = func_params['sym']
+
         known_fields = dict( zip([k[0] for k in func_params['knf']],
                                  [k[1] for k in func_params['knf']]))
         if type(func_params['req'][0]) == tuple:
@@ -646,17 +696,27 @@ class meg_to_c_interpreter:
         glob_tokens['xyz'] = \
         'const cs_real_3_t *xyz = (cs_real_3_t *)cs_glob_mesh_quantities->cell_cen;'
 
+        # For momentum also define u,v and w:
+        if source_type == "momentum_source_term":
+            glob_tokens['velocity'] = \
+            'const cs_real_3_t *vel = (cs_real_3_t *)CS_F_(vel)->val;'
+            for i, key in enumerate(['u', 'v', 'w']):
+                loop_tokens[key] = \
+                'const cs_real_t %s = vel[c_id][%d];' % (key, i)
+
+
         # Notebook variables
         for kn in self.notebook.keys():
             glob_tokens[kn] = \
             'const cs_real_t %s = cs_notebook_parameter_value_by_name("%s");' % (kn, kn)
 
         for f in known_fields.keys():
+            knf_name = known_fields[f]
             glob_tokens[f] = \
             'const cs_real_t *%s_vals = cs_field_by_name("%s")->val;' \
-            % (f, known_fields[f])
+            % (f, knf_name)
 
-            loop_tokens[f] = 'const cs_real_t %s = %s_vals[c_id];' % (f, f)
+            loop_tokens[f] = 'const %s = %s_vals[c_id];' % (f, f)
         # ------------------------
 
         for r in required:
@@ -1189,7 +1249,7 @@ class meg_to_c_interpreter:
             if slist != []:
                 for s in slist:
                     diff_choice = fcm.m_sca.getScalarDiffusivityChoice(s)
-                    if diff_choice == 'variable':
+                    if diff_choice == 'user_law':
                         dname = fcm.m_sca.getScalarDiffusivityName(s)
                         exp, req, sca, sym, = \
                         fcm.getFormulaComponents('scalar_diffusivity', s)
@@ -1605,8 +1665,9 @@ class meg_to_c_interpreter:
                     if zone.getNature()['momentum_source_term'] == 'on':
                         if gwm.getGroundwaterModel() == 'off':
                             exp, req, sym = stm.getMomentumFormulaComponents(z_id)
+                            knf = []
                             self.init_block('src', zone_name, "momentum",
-                                            exp, req, sym, [],
+                                            exp, req, sym, knf,
                                             source_type="momentum_source_term")
                         else:
                             exp, req, sym = stm.getRichardsFormulaComponents(z_id)
@@ -1621,15 +1682,21 @@ class meg_to_c_interpreter:
                         if gwm.getGroundwaterModel() == 'off':
                             for sca in sca_list:
                                 exp, req, sym = stm.getSpeciesFormulaComponents(z_id, sca)
+
+                                knf = [(sca, sca)]
+
                                 self.init_block('src', zone_name, sca,
-                                                exp, req, sym, [],
+                                                exp, req, sym, knf,
                                                 source_type="scalar_source_term")
                         else:
                             for sca in sca_list:
                                 exp, req, sym = \
                                 stm.getGroundWaterSpeciesFormulaComponents(z_id, sca)
+
+                                knf = [(sca, sca)]
+
                                 self.init_block('src', zone_name, sca,
-                                                exp, req, sym, [],
+                                                exp, req, sym, knf,
                                                 source_type="scalar_source_term")
 
                 if 'thermal_source_term' in nature_list:
@@ -1637,8 +1704,11 @@ class meg_to_c_interpreter:
                         th_sca_name = stm.therm.getThermalScalarName()
                         exp, req, sym = stm.getThermalFormulaComponents(z_id,
                                                                         th_sca_name)
+
+                        knf = [(th_sca_name, th_sca_name)]
+
                         self.init_block('src', zone_name, th_sca_name,
-                                        exp, req, sym, [],
+                                        exp, req, sym, knf,
                                         source_type="thermal_source_term")
         else:
             from code_saturne.model.LocalizationModel import LocalizationModel
@@ -1700,9 +1770,11 @@ class meg_to_c_interpreter:
                     # Thermal
                     node_t = im.node_scalartherm.xmlGetNode('variable')
                     if node_t:
-                        exp, req, sym = im.getThermalFormulaComponents(z_id)
-                        self.init_block('ini', zone_name, 'thermal',
-                                        exp, req, sym, [])
+                        th_formula = im.getThermalFormula(z_id)
+                        if th_formula:
+                            exp, req, sym = im.getThermalFormulaComponents(z_id)
+                            self.init_block('ini', zone_name, 'thermal',
+                                            exp, req, sym, [])
 
                     # HydraulicHead
                     if im.node_veloce.xmlGetNode('variable', name = 'hydraulic_head'):
@@ -1970,7 +2042,9 @@ class meg_to_c_interpreter:
 
         from code_saturne import cs_compile
 
+        cwd = os.getcwd()
         os.chdir(self.tmp_path)
+
         out = open('comp.out', 'w')
         err = open('comp.err', 'w')
 
@@ -2000,7 +2074,7 @@ class meg_to_c_interpreter:
                 for i in range(len(errors)):
                     msg += errors[i].strip()+'\n'
 
-        os.chdir(self.data_path)
+        os.chdir(cwd)
 
         return compilation_test, msg, n_errors
 
@@ -2030,13 +2104,24 @@ class meg_to_c_interpreter:
 
     #---------------------------------------------------------------------------
 
+    def __file_path__(self, c_file_name, hard_path=None):
+
+        # Path based on call options
+        if hard_path != None:
+            fpath = os.path.join(hard_path, c_file_name)
+        elif self.wdir:
+            fpath = os.path.join(self.wdir, c_file_name)
+        else:
+            fpath = os.path.join(self.case['case_path'], 'src', c_file_name)
+
+        return fpath
+
+    #---------------------------------------------------------------------------
+
     def delete_file(self, c_file_name, hard_path=None):
 
         # Copy function file if needed
-        if hard_path:
-            fpath = os.path.join(hard_path, c_file_name)
-        else:
-            fpath = os.path.join(self.case['case_path'], 'SRC', c_file_name);
+        fpath = self.__file_path__(c_file_name, hard_path=hard_path)
 
         if os.path.isfile(fpath):
             os.remove(fpath)
@@ -2049,13 +2134,7 @@ class meg_to_c_interpreter:
             # Try and write the function in the src if in RESU folder
             # For debugging purposes
             try:
-                if hard_path != None:
-                    fpath = os.path.join(hard_path, c_file_name)
-                else:
-                    fpath = os.path.join(self.case['case_path'],
-                                         'src',
-                                         c_file_name)
-
+                fpath = self.__file_path__(c_file_name, hard_path=hard_path)
                 new_file = open(fpath, 'w')
                 new_file.write(code_to_write)
                 new_file.close()
@@ -2145,7 +2224,7 @@ class meg_to_c_interpreter:
         if is_empty == 1:
             state = -1
 
-        ret = {'state':state,
+        ret = {'state':save_status,
                'exps':empty_exps,
                'nexps':len(empty_exps)}
 

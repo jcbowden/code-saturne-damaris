@@ -223,5 +223,18 @@ cs_user_mesh_modify_partial(cs_mesh_t             *mesh,
 }
 
 /*----------------------------------------------------------------------------*/
+/*!
+ * \brief Define a cartesian mesh.
+*/
+/*----------------------------------------------------------------------------*/
+
+#pragma weak cs_user_mesh_cartesian_define
+void
+cs_user_mesh_cartesian_define(void)
+{
+
+}
+
+/*----------------------------------------------------------------------------*/
 
 END_C_DECLS

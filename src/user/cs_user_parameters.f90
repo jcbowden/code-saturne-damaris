@@ -90,6 +90,7 @@ use ppincl
 use ppcpfu
 use coincl
 use radiat
+use ctincl
 use cs_c_bindings
 
 !===============================================================================
@@ -102,7 +103,6 @@ integer ixmlpu
 
 return
 end subroutine usppmo
-
 
 !===============================================================================
 
@@ -168,17 +168,22 @@ integer iturb, itherm, iale
 return
 end subroutine usipph
 
-
 !===============================================================================
 
 !> \brief User subroutine for the input of additional user parameters.
+!
+!>  This subroutine allows setting parameters
+!>  which do not already appear in the other subroutines of this file.
+!>
+!>  It is possible to add or remove parameters.
+!>  The number of physical properties and variables is known here.
 !
 !-------------------------------------------------------------------------------
 ! Arguments
 !______________________________________________________________________________.
 !  mode           name          role                                           !
 !______________________________________________________________________________!
-!> \param[in]     nmodpp         number of active specific physics models
+!> \param[in]     nmodpp         number of active specific physical models     !
 !______________________________________________________________________________!
 
 subroutine usipsu &
@@ -207,6 +212,11 @@ use field
 use cavitation
 use post
 use rotation
+use atincl
+use atsoil
+use atchem
+use atimbr
+use sshaerosol
 use cs_c_bindings
 
 !===============================================================================
@@ -219,21 +229,12 @@ integer nmodpp
 
 !===============================================================================
 
-!>  This subroutine allows setting parameters
-!>  which do not already appear in the other subroutines of this file.
-!>
-!>  It is possible to add or remove parameters.
-!>  The number of physical properties and variables is known here.
-
-!===============================================================================
-
 !----
 ! Formats
 !----
 
 return
 end subroutine usipsu
-
 
 !===============================================================================
 
@@ -291,52 +292,6 @@ integer nmodpp
 
 return
 end subroutine usipes
-
-
-!===============================================================================
-
-
-!> \brief Initialize non-standard calculation options for the atmospheric version.
-
-!-------------------------------------------------------------------------------
-! Arguments
-!______________________________________________________________________________.
-!  mode           name          role                                           !
-!______________________________________________________________________________!
-
-subroutine usati1
-
-!===============================================================================
-! Module files
-!===============================================================================
-
-use paramx
-use dimens
-use numvar
-use optcal
-use cstphy
-use entsor
-use cstnum
-use ppppar
-use atincl
-use atsoil
-use atchem
-use atimbr
-use sshaerosol
-
-!===============================================================================
-
-implicit none
-
-!===============================================================================
-
-!----
-! End
-!----
-
-return
-end subroutine usati1
-
 
 !===============================================================================
 ! Purpose:

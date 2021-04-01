@@ -71,6 +71,7 @@
 #include "cs_gui.h"
 #include "cs_gui_boundary_conditions.h"
 #include "cs_gui_conjugate_heat_transfer.h"
+#include "cs_gui_mesh.h"
 #include "cs_gui_mobile_mesh.h"
 #include "cs_gui_output.h"
 #include "cs_gui_particles.h"
@@ -96,6 +97,7 @@
 #include "cs_notebook.h"
 #include "cs_opts.h"
 #include "cs_param_cdo.h"
+#include "cs_paramedmem_coupling.h"
 #include "cs_parameters.h"
 #include "cs_partition.h"
 #include "cs_physical_properties.h"
@@ -108,6 +110,7 @@
 #include "cs_random.h"
 #include "cs_restart.h"
 #include "cs_restart_map.h"
+#include "cs_runaway_check.h"
 #include "cs_sles.h"
 #include "cs_sles_default.h"
 #include "cs_sat_coupling.h"
@@ -118,6 +121,7 @@
 #include "cs_timer_stats.h"
 #include "cs_tree.h"
 #include "cs_turbomachinery.h"
+#include "cs_volume_mass_injection.h"
 #include "cs_volume_zone.h"
 
 /*----------------------------------------------------------------------------*/
@@ -208,6 +212,12 @@ _run(void)
 
   cs_turbomachinery_define();
 
+  /* Check if an internally generated cartesian mesh is used */
+  if (cs_gui_mesh_build_cartesian())
+    cs_gui_mesh_cartesian_define();
+
+  cs_user_mesh_cartesian_define();
+
   /* Call main calculation initialization function or help */
 
   cs_io_log_initialize();
@@ -245,8 +255,6 @@ _run(void)
     if (cs_file_isreg(default_restart_mesh))
       cs_restart_map_set_mesh_input(default_restart_mesh);
 
-    cs_gui_init();
-
     CS_PROCF(csinit, CSINIT)(&_rank_id, &_n_ranks);
 
     CS_PROCF(initi1, INITI1)();
@@ -255,7 +263,6 @@ _run(void)
     if (ivoset)
       halo_type = CS_HALO_EXTENDED;
 
-    cs_gui_boundary_conditions_define(cs_glob_domain->boundaries);
     if (cs_glob_ale > 0) {
       cs_gui_mobile_mesh_get_boundaries(cs_glob_domain);
       if (cs_glob_mesh->time_dep < CS_MESH_TRANSIENT_COORDS)
@@ -299,6 +306,8 @@ _run(void)
 
   cs_syr_coupling_all_init();
   cs_sat_coupling_all_init();
+
+  cs_paramedmem_coupling_all_init();
 
   /* Initialize main post-processing */
 
@@ -429,9 +438,13 @@ _run(void)
 
           cs_ctwr_build_all();
 
+          cs_volume_mass_injection_flag_zones();
+
           /* Setup couplings and fixed-mesh postprocessing */
 
           cs_syr_coupling_init_meshes();
+
+          cs_paramedmem_coupling_define_mesh_fields();
 
           cs_post_default_write_meshes();
 
@@ -470,7 +483,7 @@ _run(void)
 
     /* Finalize synthetic inlet condition generation */
 
-    cs_inflow_finalize();
+    cs_les_inflow_finalize();
 
   }
 
@@ -502,6 +515,7 @@ _run(void)
   cs_syr_coupling_all_finalize();
 #if defined(HAVE_MPI)
   cs_sat_coupling_all_finalize();
+  cs_paramedmem_coupling_all_finalize();
   cs_coupling_finalize();
 #endif
 
@@ -588,6 +602,8 @@ _run(void)
 
 
   cs_log_printf_flush(CS_LOG_N_TYPES);
+
+  cs_runaway_check_finalize();
 }
 
 /*============================================================================

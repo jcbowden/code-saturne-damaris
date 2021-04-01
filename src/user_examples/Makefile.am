@@ -38,8 +38,9 @@ AM_CPPFLAGS = \
 -I$(top_srcdir)/src/base \
 -I$(top_srcdir)/src/cfbl \
 -I$(top_srcdir)/src/cdo \
--I$(top_srcdir)/src/darc \
+-I$(top_srcdir)/src/cogz \
 -I$(top_srcdir)/src/ctwr \
+-I$(top_srcdir)/src/darc \
 -I$(top_srcdir)/src/elec \
 -I$(top_srcdir)/src/lagr \
 -I$(top_srcdir)/src/mesh \
@@ -103,12 +104,14 @@ cs_user_lagr_model.c \
 cs_user_lagr_particle.c \
 cs_user_lagr_particle-coal.c \
 cs_user_mesh-boundary.c \
+cs_user_mesh-cartesian.c \
 cs_user_mesh-groups_from_free_faces.c \
 cs_user_mesh-input-save.c \
 cs_user_mesh-joining.c \
 cs_user_mesh-modify.c \
 cs_user_mesh-periodicity.c \
 cs_user_mesh-quality.c \
+cs_user_paramedmem_coupling-base.c \
 cs_user_parameters-base.c \
 cs_user_parameters-cdo-condif.c \
 cs_user_parameters-ctwr.c \
@@ -116,6 +119,7 @@ cs_user_parameters-coupling.c \
 cs_user_parameters-fans.c \
 cs_user_parameters-cdo-gwf.c \
 cs_user_parameters-linear_solvers.c \
+cs_user_parameters-volume_mass_injection.c \
 cs_user_parameters-time_moments.c \
 cs_user_performance_tuning-matrix.c \
 cs_user_performance_tuning-numbering.c \
@@ -169,8 +173,7 @@ cs_user_initialization-pulverized_coal.f90 \
 cs_user_initialization-richards.f90 \
 cs_user_initialization-time_step.f90 \
 cs_user_initialization-unified_combustion_coal.f90 \
-cs_user_les_inflow-base.f90 \
-cs_user_mass_source_terms.f90 \
+cs_user_les_inflow-base.c\
 cs_user_metal_structures_source_terms-condensation.f90 \
 cs_user_modules-user-arrays.f90 \
 cs_user_parameters-richards.f90 \
@@ -182,6 +185,7 @@ cs_user_physical_properties-richards_sat.f90 \
 cs_user_physical_properties-richards_unsat.f90 \
 cs_user_physical_properties-scalar_drift.f90 \
 cs_user_source_terms-base.c \
+cs_user_source_terms-momentum.c \
 cs_user_source_terms-richards.c \
 cs_user_source_terms-scalar_in_a_channel.c \
 cs_user_source_terms-turbulence.c \
@@ -191,7 +195,7 @@ noinst_LTLIBRARIES = libcsexample.la
 libcsexample_la_SOURCES = $(examplefiles)
 libcsexample_la_LDFLAGS = -no-undefined
 
-exampledir = $(pkgdatadir)/user_examples
+exampledir = $(pkgdatadir)/user_sources/EXAMPLES
 example_DATA = $(examplefiles)
 
 clean-local:
@@ -205,18 +209,18 @@ install-data-hook:
 	c_user_files=`ls ${top_srcdir}/src/user_examples/*.c* 2>/dev/null`; \
 	for f in $${c_user_files}; do \
           file=`basename "$${f}"` && \
-	  $(PYTHON) "${top_srcdir}/build-aux/cs_user_src_filter.py" "$(VERSION)" < "${top_srcdir}/src/user_examples/$${file}" > "$(DESTDIR)$(pkgdatadir)/user_examples/$${file}"; \
+	  $(PYTHON) "${top_srcdir}/build-aux/cs_user_src_filter.py" "$(cs_version_short)" < "${top_srcdir}/src/user_examples/$${file}" > "$(DESTDIR)$(exampledir)/$${file}"; \
 	done ; \
 	h_user_files=`ls ${top_srcdir}/src/user_examples/*.h 2>/dev/null`; \
 	for f in $${h_user_files}; do \
           file=`basename "$${f}"` && \
-	  $(PYTHON) "${top_srcdir}/build-aux/cs_user_src_filter.py" "$(VERSION)" < "${top_srcdir}/src/user_examples/$${file}" > "$(DESTDIR)$(pkgdatadir)/user_examples/$${file}"; \
+	  $(PYTHON) "${top_srcdir}/build-aux/cs_user_src_filter.py" "$(cs_version_short)" < "${top_srcdir}/src/user_examples/$${file}" > "$(DESTDIR)$(exampledir)/$${file}"; \
 	done ; \
-	cd $(DESTDIR)$(pkgdatadir)/user_examples && \
+	cd $(DESTDIR)$(exampledir) && \
 	f90_user_examples=`ls *.f90 2>/dev/null`; \
 	stubvers="^\!VERS\n"; \
-	version1="\!                      Code_Saturne version $(VERSION)\n"; \
-	version2="\!                      --------------------------"; \
+	version1="\!                      Code_Saturne version $(cs_version_short)\n"; \
+	version2="\!                      ------------------------"; \
 	for file in $${f90_user_examples}; do \
 	  $(SED) -e "N;s/$${stubvers}/$${version1}$${version2}/" < "$${file}" > "$${file}.tmp" && \
 	  mv "$${file}.tmp" "$${file}"; \

@@ -124,6 +124,7 @@ cs_log.h \
 cs_log_iteration.h \
 cs_log_setup.h \
 cs_map.h \
+cs_mass_source_terms.h \
 cs_math.h \
 cs_measures_util.h \
 cs_rank_neighbors.h \
@@ -155,6 +156,7 @@ cs_restart.h \
 cs_restart_default.h \
 cs_restart_map.h \
 cs_rotation.h \
+cs_runaway_check.h \
 cs_sat_coupling.h \
 cs_search.h \
 cs_selector.h \
@@ -174,11 +176,11 @@ cs_tree.h \
 cs_turbomachinery.h \
 cs_vof.h \
 cs_volume_zone.h \
+cs_volume_mass_injection.h \
 cs_wall_functions.h \
 cs_zone.h \
 cs_base_headers.h \
-cs_headers.h \
-cs_mass_source_terms.h
+cs_headers.h
 
 if HAVE_CUDA
 pkginclude_HEADERS += cs_base_cuda.h
@@ -235,8 +237,6 @@ c_h_to_t.f90 \
 calhyd.f90 \
 caltri.f90 \
 cs_mass_source_terms.c \
-catsmv.f90 \
-catsmt.f90 \
 clpsca.f90 \
 clptrg.f90 \
 clptur.f90 \
@@ -316,6 +316,7 @@ cs_restart.c \
 cs_restart_default.c \
 cs_restart_map.c \
 cs_rotation.c \
+cs_runaway_check.c \
 cs_sat_coupling.c \
 cs_search.c \
 cs_selector.c \
@@ -334,6 +335,7 @@ cs_time_step.c \
 cs_timer_stats.c \
 cs_turbomachinery.c \
 cs_vof.c \
+cs_volume_mass_injection.c \
 cs_volume_zone.c \
 cs_wall_functions.c \
 cs_internal_coupling.c \
@@ -415,10 +417,10 @@ pkglib_LTLIBRARIES =
 
 pkginclude_HEADERS += \
 cs_medcoupling_utils.hxx \
-cs_medcoupling_remapper.hxx \
-cs_medcoupling_intersector.hxx \
-cs_paramedmem_coupling.hxx \
-cs_paramedmem_remapper.hxx
+cs_medcoupling_remapper.h \
+cs_medcoupling_intersector.h \
+cs_paramedmem_coupling.h \
+cs_paramedmem_remapper.h
 
 if HAVE_PLUGIN_MEDCOUPLING
 

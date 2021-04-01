@@ -1971,26 +1971,6 @@ void CS_PROCF(synsce, SYNSCE)
 }
 
 /*----------------------------------------------------------------------------
- * Update a scalar array in case of parallelism and/or periodicity,
- * ignoring periodicity of rotation
- *
- * Fortran interface:
- *
- * subroutine syncmp(var)
- * *****************
- *
- * var   : <-> : scalar array
- *----------------------------------------------------------------------------*/
-
-void CS_PROCF(syncmp, SYNCMP)
-(
- cs_real_t  var[]
-)
-{
-  cs_mesh_sync_var_component(var);
-}
-
-/*----------------------------------------------------------------------------
  * Update a vector array in case of parallelism and/or periodicity.
  *
  * Fortran interface:
@@ -2481,7 +2461,7 @@ cs_mesh_discard_free_faces(cs_mesh_t  *mesh)
 
   mesh->n_g_free_faces = 0;
 
-  mesh->modified = 1;
+  mesh->modified |= CS_MESH_MODIFIED;
 }
 
 /*----------------------------------------------------------------------------
@@ -2508,7 +2488,7 @@ cs_mesh_discard_free_vertices(cs_mesh_t  *mesh)
                (unsigned long long)(n_g_vertices_old),
                (unsigned long long)(mesh->n_g_vertices));
 
-    mesh->modified = 1;
+    mesh->modified |= CS_MESH_MODIFIED;
   }
 }
 
@@ -4000,7 +3980,7 @@ cs_mesh_dump(const cs_mesh_t  *mesh)
 
     bft_printf("\nCell global numbering:\n");
     for (cs_lnum_t i = 0; i < mesh->n_cells; i++)
-      bft_printf("   < %7ld >  %12llu\n", i,
+      bft_printf("   < %7ld >  %12llu\n", (long)i,
                  (unsigned long long)(mesh->global_cell_num[i]));
     bft_printf("\n");
 
@@ -4021,7 +4001,8 @@ cs_mesh_dump(const cs_mesh_t  *mesh)
     bft_printf("n_std_ghost_cells:        %ld\n",
                (long)halo->n_elts[CS_HALO_STANDARD]);
     bft_printf("n_ext_ghost_cells:        %ld\n",
-               halo->n_elts[CS_HALO_EXTENDED] - halo->n_elts[CS_HALO_STANDARD]);
+               (long)(  halo->n_elts[CS_HALO_EXTENDED]
+                      - halo->n_elts[CS_HALO_STANDARD]));
 
     for (int i = 0; i < halo->n_c_domains; i++) {
 

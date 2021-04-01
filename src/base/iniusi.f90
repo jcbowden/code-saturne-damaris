@@ -83,7 +83,7 @@ implicit none
 
 integer          nmodpp
 integer          nscmax
-integer          l_size
+integer          l_size, f_id
 double precision relaxp, l_cp(1), l_xmasm(1), l_cv(1)
 
 type(var_cal_opt) :: vcopt
@@ -91,6 +91,12 @@ type(var_cal_opt) :: vcopt
 !===============================================================================
 
 interface
+
+  subroutine cs_gui_physical_properties()  &
+       bind(C, name='cs_gui_physical_properties')
+    use, intrinsic :: iso_c_binding
+    implicit none
+  end subroutine cs_gui_physical_properties
 
   subroutine cs_gui_porous_model()  &
        bind(C, name='cs_gui_porous_model')
@@ -103,6 +109,14 @@ interface
     use, intrinsic :: iso_c_binding
     implicit none
   end subroutine cs_gui_radiative_transfer_parameters
+
+  subroutine cs_runaway_check_define_field_max(f_id, value)  &
+       bind(C, name='cs_runaway_check_define_field_max')
+    use, intrinsic :: iso_c_binding
+    implicit none
+    integer(c_int), value :: f_id
+    real(c_double), value :: value
+  end subroutine cs_runaway_check_define_field_max
 
 end interface
 
@@ -191,6 +205,15 @@ if (ippmod(idarcy).ge.0) then
   call daini1
 endif
 
+call field_get_id_try('velocity', f_id)
+if (f_id .ge. 0) then
+  if (ippmod(icompf).ge.0) then
+    call cs_runaway_check_define_field_max(f_id, 1.0d5)
+  else
+    call cs_runaway_check_define_field_max(f_id, 1.0d4)
+  endif
+endif
+
 !===============================================================================
 ! 3. INITIALISATION DE PARAMETRES "GLOBAUX"
 !===============================================================================
@@ -233,7 +256,7 @@ endif
 
 ! Restart, read auxiliary file, frozen velocity field
 
-call csisui(ntsuit, ileaux, iccvfg)
+call csisui(ntsuit, iccvfg)
 
 ! Time step (only ntmabs, dtref)
 call cstime()
@@ -257,7 +280,7 @@ if (icdo.lt.2) then
 endif
 
 ! Gravity, physical properties
-call csphys(visls0, itempk)
+call cs_gui_physical_properties
 
 ! Turbulence reference values (uref, almax)
 call cs_gui_turb_ref_values
@@ -270,7 +293,7 @@ call cs_f_turb_complete_constants
 call cssca2(iturt)
 
 ! Diffusivities
-call cssca3(visls0)
+call cssca3()
 
 ! Porosity model
 call cs_gui_porous_model()
@@ -305,9 +328,9 @@ if (ippmod(icompf).ge.0) then
   ! (diffusivity_id for itempk) and the volume viscosity (iviscv) has
   ! been set in fldprp.
 
-  ! Here call to uscfx2 to get visls0(itempk), viscv0, xmasmr, ivivar and
+  ! Here call to uscfx2 to get visls_0(itempk), viscv0, xmasmr, ivivar and
   ! psginf, gammasg, cv0 in stiffened gas thermodynamic.
-  ! With GUI, visls0(itempk), viscv0, xmasmr and ivivar have already been read
+  ! With GUI, visls_0(itempk), viscv0, xmasmr and ivivar have already been read
   ! above in the call to csphys.
   call uscfx2
 

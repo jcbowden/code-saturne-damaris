@@ -214,12 +214,11 @@ integer          kbfid, b_f_id
 integer          keyvar
 integer          dimrij, f_dim
 
-double precision sigma , cpp   , rkl
+double precision sigma , cpp   , rkl   , visls_0
 double precision hint  , hext  , pimp  , dimp, cfl
 double precision pinf  , ratio
 double precision hintt(6)
 double precision flumbf, visclc, visctc, distbf
-double precision xxp0, xyp0, xzp0
 double precision srfbnf, normal(3)
 double precision rinfiv(3), pimpv(3), qimpv(3), hextv(3), cflv(3)
 double precision b_pvari(3)
@@ -228,10 +227,12 @@ double precision temp, exchange_coef
 double precision turb_schmidt
 double precision, allocatable, dimension(:) :: pimpts, hextts, qimpts, cflts
 double precision, allocatable, dimension(:) :: tb_save
+double precision sigmae
 
 character(len=80) :: fname
 
 double precision, dimension(:,:), pointer :: disale
+double precision, dimension(:,:), pointer :: xyzno0
 double precision, allocatable, dimension(:,:) :: velipb
 double precision, pointer, dimension(:,:) :: rijipb
 double precision, allocatable, dimension(:,:) :: grad
@@ -326,6 +327,17 @@ interface
 
   end subroutine clsyvt
 
+  subroutine cs_boundary_conditions_complete(nvar, itypfb, icodcl, rcodcl) &
+    bind(C, name='cs_boundary_conditions_complete')
+
+    use, intrinsic :: iso_c_binding
+    implicit none
+    integer(c_int), value :: nvar
+    integer(c_int), dimension(*), intent(inout) :: itypfb, icodcl
+    real(kind=c_double), dimension(*), intent(inout) :: rcodcl
+
+  end subroutine cs_boundary_conditions_complete
+
   subroutine cs_syr_coupling_recv_boundary(nvar, bc_type, icodcl, rcodcl) &
     bind(C, name = 'cs_syr_coupling_recv_boundary')
 
@@ -374,8 +386,7 @@ call precli(nvar, icodcl, rcodcl)
 !    -> sera modifie lors de la restructuration des zones de bord
 
 call uiclim &
-  ( ippmod(idarcy),                                                &
-    nozppm, ncharm, ncharb, nclpch,                                &
+  ( nozppm,                                                        &
     iqimp,  icalke, ientat, ientcp, inmoxy, ientox,                &
     ientfu, ientgb, ientgf, iprofm, iautom,                        &
     itypfb, izfppp, icodcl,                                        &
@@ -394,50 +405,36 @@ if (ippmod(iphpar).eq.0.or.ippmod(igmix).ge.0.or.ippmod(icompf).ge.0) then
 
 endif
 
-!     - Sous-programme utilisateur
-!       ==========================
+call cs_boundary_conditions_complete(nvar, itypfb, icodcl, rcodcl)
+
+! User-defined functions
+! ==========================
 
 call cs_f_user_boundary_conditions &
-  ( nvar   , nscal  ,                                              &
-  icodcl , itrifb , itypfb , izfppp ,                            &
-  dt     ,                                                       &
-  rcodcl )
+  (nvar, nscal, icodcl, itrifb, itypfb, izfppp, dt, rcodcl )
 
 call user_boundary_conditions(nvar, itypfb, icodcl, rcodcl)
 
-!     - Interface Code_Saturne
-!       ======================
+! Check consistency with GUI definitions
 
 call uiclve(nozppm, itypfb, izfppp)
 
-! --- Couplage code/code entre deux instances (ou plus) de Code_Saturne
-!       On s'occupe ici du couplage via les faces de bord, et de la
-!       transformation de l'information recue en condition limite.
+! BC'based coupling with other code_saturne instances.
 
 if (nbrcpl.gt.0) then
-
-  call cscfbr &
-    ( nscal  ,                                                       &
-    icodcl , itypfb ,                                              &
-    dt     ,                                                       &
-    rcodcl )
-
+  call cscfbr(nscal, icodcl, itypfb, dt, rcodcl)
 endif
 
-! -- Synthetic Eddy Method en L.E.S. :
-!    (Transfert des structures dans les tableaux rcodcl)
+! Synthetic Eddy Method for L.E.S.
 
-call synthe &
-  ( nvar   , nscal  ,                                              &
-  iu     , iv     , iw     ,                                     &
-  ttcabs , dt     ,                                              &
-  rcodcl )
+call synthe(ttcabs, dt, rcodcl)
 
-! -- Methode ALE (CL de vitesse de maillage et deplacement aux noeuds)
+! ALE method (mesh velocity BC and vertices displacement)
 
 if (iale.ge.1) then
 
   call field_get_val_v(fdiale, disale)
+  call field_get_val_v_by_name("vtx_coord0", xyzno0)
 
   do ii = 1, nnod
     impale(ii) = 0
@@ -446,21 +443,17 @@ if (iale.ge.1) then
   ! - Interface Code_Saturne
   !   ======================
 
-  call uialcl &
-    ( ibfixe, igliss, ivimpo, ifresf,    &
-      ialtyb,                            &
-      impale,                            &
-      disale,                            &
-      iuma, ivma, iwma,                  &
-      rcodcl)
+  call uialcl(ibfixe, igliss, ivimpo, ifresf,   &
+             ialtyb, impale, disale,            &
+             iuma, ivma, iwma,                  &
+             rcodcl)
 
-  call usalcl &
-    ( itrale ,                                                       &
-    nvar   , nscal  ,                                              &
-    icodcl , itypfb , ialtyb ,                                     &
-    impale ,                                                       &
-    dt     ,                                                       &
-    rcodcl , xyzno0 , disale )
+  ! TODO in the future version: remove dt, xyzno0, and disale
+  ! because they are avaliable as fields.
+
+  call usalcl(itrale, nvar, nscal,              &
+              icodcl, itypfb, ialtyb, impale,   &
+              dt, rcodcl, xyzno0, disale)
 
   !     Au cas ou l'utilisateur aurait touche disale sans mettre impale=1, on
   !     remet le deplacement initial
@@ -506,7 +499,6 @@ if (itrfin.eq.1 .and. itrfup.eq.1) then
   endif
 
 endif
-
 
 !Radiative transfer: add contribution to energy BCs.
 if (iirayo.gt.0 .and. itrfin.eq.1 .and. itrfup.eq.1) then
@@ -650,7 +642,7 @@ if (iale.ge.1) then
   call altycl &
  ( itypfb , ialtyb , icodcl , impale , .false. ,                  &
    dt     ,                                                       &
-   rcodcl , xyzno0 )
+   rcodcl )
 endif
 
 if (iturbo.ne.0) then
@@ -666,19 +658,11 @@ call typecl &
 ! 3. check the consistency of the bcs
 !===============================================================================
 
-call vericl                                                       &
- ( nvar   , nscal  ,                                              &
-   itypfb , icodcl ,                                              &
-   rcodcl )
+call vericl(nvar, nscal, itypfb, icodcl)
 
 !===============================================================================
 ! 4. variables
 !===============================================================================
-
-! --- variables
-xxp0   = xyzp0(1)
-xyp0   = xyzp0(2)
-xzp0   = xyzp0(3)
 
 ! --- physical quantities
 call field_get_val_s(iviscl, viscl)
@@ -1615,13 +1599,13 @@ if (itytur.eq.2.or.iturb.eq.60) then
     !     nul)
     if (ii.eq.1.and.itytur.eq.2) then
       ivar   = ik
-      sigma  = sigmak
+      call field_get_key_double(ivarfl(ik), ksigmas, sigma)
     elseif (ii.eq.1.and.iturb.eq.60) then
       ivar   = ik
       sigma  = ckwsk2 !fixme it is not consistent with the model
     elseif (itytur.eq.2) then
       ivar   = iep
-      sigma  = sigmae
+      call field_get_key_double(ivarfl(iep), ksigmas, sigma)
     else
       ivar   = iomg
       sigma  = ckwsw2 !fixme it is not consistent with the model
@@ -2034,6 +2018,7 @@ elseif (itytur.eq.3) then
   call field_get_coefb_s(ivarfl(ivar), coefbp)
   call field_get_coefaf_s(ivarfl(ivar), cofafp)
   call field_get_coefbf_s(ivarfl(ivar), cofbfp)
+  call field_get_key_double(ivarfl(iep), ksigmas, sigmae)
 
   call field_get_key_struct_var_cal_opt(ivarfl(ivar), vcopt)
 
@@ -2247,13 +2232,13 @@ elseif (itytur.eq.5) then
 
     if (ii.eq.1) then
       ivar   = ik
-      sigma  = sigmak
+      call field_get_key_double(ivarfl(ik), ksigmas, sigma)
     elseif (ii.eq.2) then
       ivar   = iep
-      sigma  = sigmae
+      call field_get_key_double(ivarfl(iep), ksigmas, sigma)
     else
       ivar   = iphi
-      sigma  = sigmak
+      call field_get_key_double(ivarfl(iphi), ksigmas, sigma)
     endif
 
     call field_get_coefa_s(ivarfl(ivar), coefap)
@@ -2606,7 +2591,7 @@ if (nscal.ge.1) then
       call field_get_val_s(ifcvsl, viscls)
     endif
 
-    call field_get_key_int(f_id, kscacp, iscacp)
+    call field_get_key_int(ivarfl(ivar), kscacp, iscacp)
 
     ! --- Indicateur de prise en compte de Cp ou non
     !       (selon si le scalaire (scalaire associe pour une fluctuation)
@@ -2620,6 +2605,9 @@ if (nscal.ge.1) then
     if (iscavr(ii).gt.0) then
       iscal = iscavr(ii)
     endif
+
+    ! Reference diffusivity
+    call field_get_key_double(ivarfl(isca(iscal)), kvisl0, visls_0)
 
     if (iscacp.eq.1) then
       if(icp.ge.0) then
@@ -2678,7 +2666,7 @@ if (nscal.ge.1) then
 
         ! --- Viscosite variable ou non
         if (ifcvsl.lt.0) then
-          rkl = visls0(ii)
+          rkl = visls_0
         else
           rkl = viscls(iel)
         endif
@@ -2900,7 +2888,7 @@ if (nscal.ge.1) then
           distbf = distb(ifac)
 
           if (ifcvsl.lt.0) then
-            rkl = visls0(iscal)/cpp
+            rkl = visls_0/cpp
           else
             rkl = viscls(iel)/cpp
           endif
@@ -3031,7 +3019,7 @@ if (nscal.ge.1) then
 
         ! --- Viscosite variable ou non
         if (ifcvsl.lt.0) then
-          rkl = visls0(ii)
+          rkl = visls_0
         else
           rkl = viscls(iel)
         endif
@@ -4568,7 +4556,7 @@ do isou = 1, 3
   ! Gradient BCs
   do jsou = 1, 3
     if (jsou.eq.isou) then
-      coefb(isou,jsou) = cflv(isou)*(1.d0+cflv(isou))
+      coefb(isou,jsou) = cflv(isou)/(1.d0+cflv(isou))
     else
       coefb(isou,jsou) = 0.d0
     endif
@@ -4635,7 +4623,7 @@ do isou = 1, 6
   ! Gradient BCs
   do jsou = 1, 6
     if (jsou.eq.isou) then
-      coefb(isou,jsou) = cflts(isou)*(1.d0+cflts(isou))
+      coefb(isou,jsou) = cflts(isou)/(1.d0+cflts(isou))
     else
       coefb(isou,jsou) = 0.d0
     endif
@@ -4703,7 +4691,7 @@ do isou = 1, 3
   ! Gradient BCs
   do jsou = 1, 3
     if (jsou.eq.isou) then
-      coefb(isou,jsou) = cflv(isou)*(1.d0+cflv(isou))
+      coefb(isou,jsou) = cflv(isou)/(1.d0+cflv(isou))
     else
       coefb(isou,jsou) = 0.d0
     endif
@@ -5154,6 +5142,7 @@ double precision rcodcl(nfabor,nvar,3)
 integer          iterns, ii
 
 double precision, dimension(:,:), pointer :: disale
+double precision, dimension(:,:), pointer :: xyzno0
 
 !===============================================================================
 ! 0. User calls
@@ -5169,8 +5158,7 @@ call precli(nvar, icodcl, rcodcl)
 !    -> sera modifie lors de la restructuration des zones de bord
 
 call uiclim &
-  ( ippmod(idarcy),                                                &
-    nozppm, ncharm, ncharb, nclpch,                                &
+  ( nozppm,                                                        &
     iqimp,  icalke, ientat, ientcp, inmoxy, ientox,                &
     ientfu, ientgb, ientgf, iprofm, iautom,                        &
     itypfb, izfppp, icodcl,                                        &
@@ -5193,6 +5181,7 @@ call user_boundary_conditions(nvar, itypfb, icodcl, rcodcl)
 if (iale.ge.1) then
 
   call field_get_val_v(fdiale, disale)
+  call field_get_val_v_by_name("vtx_coord0", xyzno0)
 
   do ii = 1, nnod
     impale(ii) = 0
@@ -5241,7 +5230,7 @@ if (iale.ge.1) then
   call altycl &
  ( itypfb , ialtyb , icodcl , impale , .true. ,                   &
    dt     ,                                                       &
-   rcodcl , xyzno0 )
+   rcodcl )
 endif
 
 if (iturbo.ne.0) then
@@ -5278,10 +5267,7 @@ call typecl &
 ! When called before time loop, some values are not yet available.
 if (ntcabs .eq. ntpabs) return
 
-call vericl                                                       &
- ( nvar   , nscal  ,                                              &
-   itypfb , icodcl ,                                              &
-   rcodcl )
+call vericl(nvar, nscal, itypfb, icodcl)
 
 !----
 ! End

@@ -524,7 +524,7 @@ def get_script_positional_args():
     if sys.platform.startswith('win'):
         args = '%*'
     else:
-        args = '$@'
+        args = '"$@"'
     return args
 
 #-------------------------------------------------------------------------------
@@ -676,13 +676,29 @@ def source_shell_script(path):
 
     if not os.path.isfile(path):
         sys.stderr.write('Warning:\n'
-                         + '   file ' + path + '\n'
+                         + '  file ' + path + '\n'
                          + 'not present, so cannot be sourced.\n\n')
 
     if sys.platform.startswith('win'):
         return
 
-    user_shell = os.getenv('SHELL')
+    user_shell = None
+
+    # If shebang is present, try to use it.
+    # (TODO: handle more complex cases with env)
+    try:
+        f = open(path, 'r')
+        l = f.readline()
+        f.close()
+        if l[:2] == '#!':
+            e = l[2:].split()[0]
+            if e[-3:] != 'env':
+                user_shell = e
+    except Exception:
+        pass
+
+    if not user_shell:
+        user_shell = os.getenv('SHELL')
     if not user_shell:
         user_shell = '/bin/sh'
 
@@ -784,7 +800,7 @@ def get_ld_library_path_additions(pkg):
 
 #-------------------------------------------------------------------------------
 
-def source_syrthes_env(pkg):
+def source_syrthes_env(pkg, verbose=True):
     """
     Source SYRTHES environment
     """
@@ -818,19 +834,24 @@ def source_syrthes_env(pkg):
     # for consistency with case creation parameters; it this is not enough,
     # use existing environment or load one based on current configuration.
 
-    try:
-        for p in sys.path:
-            if p[-14:] == '/share/syrthes' or p[-14:] == '\share\syrthes':
-                syr_profile = os.path.join(p[:,-14], 'bin', 'syrthes.profile')
-                if os.path.isfile(syr_profile):
-                    print("Sourcing SYRTHES environment: " + syr_profile)
+    for p in sys.path:
+        if p[-14:] == '/share/syrthes' or p[-14:] == '\share\syrthes':
+            syr_profile = os.path.join(p[:,-14], 'bin', 'syrthes.profile')
+            if os.path.isfile(syr_profile):
+                if verbose:
+                    sys.stdout.write("Sourcing SYRTHES environment: " \
+                                     + syr_profile + "\n")
+                try:
                     source_shell_script(syr_profile)
-    except Exception:
-        pass
+                except Exception:
+                    sys.stderr.write("  Failed sourcing SYRTHES environment.\n")
 
     env_syrthes_home = os.getenv('SYRTHES4_HOME')
 
     if not syrthes_home:
+        if verbose:
+            sys.stdout.write("Set syrthes_home based on SYRTHES4_HOME: " \
+                             + str(env_syrthes_home) + "\n")
         syrthes_home = env_syrthes_home
 
     if not syrthes_home:
@@ -847,16 +868,21 @@ def source_syrthes_env(pkg):
     if syrthes_home != env_syrthes_home:
         syr_profile = os.path.join(config.get('install', 'syrthes'),
                                    'bin', 'syrthes.profile')
-        print("Sourcing SYRTHES environment: " + syr_profile)
+        if verbose:
+            sys.stdout.write("Sourcing SYRTHES environment: " \
+                             + syr_profile + "\n")
         source_shell_script(syr_profile)
 
     # Finally, ensure module can be imported
 
+    syrthes_bin = os.path.join(syrthes_home, 'bin')
     syr_datapath = os.path.join(syrthes_home,
                                 os.path.join('share', 'syrthes'))
-    if sys.path.count(syr_datapath) > 0:
-        sys.path.remove(syr_datapath)
-    sys.path.insert(0, syr_datapath)
+
+    for p in (syrthes_bin, syr_datapath):
+        if sys.path.count(p) > 0:
+            sys.path.remove(p)
+        sys.path.insert(0, p)
 
 #-------------------------------------------------------------------------------
 
@@ -1172,7 +1198,7 @@ class resource_info(batch_info):
             if self.n_procs != None:
                 if self.n_procs != n_procs:
                     sys.stderr.write('Warning:\n'
-                                     +'   Will try to use ' + str(n_procs)
+                                     +'  Will try to use ' + str(n_procs)
                                      + ' processes while resource manager ('
                                      + self.manager + ')\n   allows for '
                                      + str(self.n_procs) + '.\n\n')
@@ -1186,7 +1212,7 @@ class resource_info(batch_info):
         if n_threads != None:
             if self.n_threads != None and n_threads != self.n_threads:
                 sys.stderr.write('Warning:\n'
-                                 +'   Will try to use ' + str(self.n_threads)
+                                 +'  Will try to use ' + str(self.n_threads)
                                  + ' threads per task while resource manager ('
                                  + self.manager + ')\n   allows for '
                                  + str(n_threads) + '.\n\n')
@@ -1554,7 +1580,7 @@ class mpi_environment:
             return 'gforker' # might also be remshell
 
         sys.stderr.write('Warning:\n'
-                         + '   Unable to determine MPICH program manager:'
+                         + '  Unable to determine MPICH program manager:'
                          + ' assume "Hydra".\n\n')
 
         return 'hydra'
@@ -1691,7 +1717,7 @@ class mpi_environment:
                     hosts = True
             if hosts == True:
                 sys.stderr.write('Warning:\n'
-                                 + '   Hosts list will be ignored by'
+                                 + '  Hosts list will be ignored by'
                                  + ' MPICH gforker program manager.\n\n')
 
         # Info commands

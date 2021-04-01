@@ -185,11 +185,6 @@ _vfb_apply_bc_partly(const cs_equation_param_t     *eqp,
 
     }
 
-    if (cs_equation_param_has_convection(eqp) &&
-        ((cb->cell_flag & CS_FLAG_SOLID_CELL) == 0))
-      /* Always weakly enforced */
-      eqc->adv_func_bc(eqp, cm, cb, csys);
-
     if (csys->has_sliding)
       eqc->enforce_sliding(eqp, cm, fm, diff_hodge, cb, csys);
 
@@ -315,16 +310,19 @@ cs_cdofb_vecteq_setup(cs_real_t                     t_eval,
 /*!
  * \brief   Initialize the local structure for the current cell
  *          The algebraic system for time t^{n+1} is going to be built knowing
- *          previous field at time t^{n}. Make sure to be consistent between
- *          the call to current_to_previous and the parameters vel_{f,c}_pre
+ *          previous field at time t^{n} and potentially the field at time
+ *          t^{n-1}. Make sure to be consistent between the call to
+ *          current_to_previous and the parameters vel_{f,c}_n/nm1 given
  *
  * \param[in]      cm          pointer to a cellwise view of the mesh
  * \param[in]      eqp         pointer to a cs_equation_param_t structure
  * \param[in]      eqb         pointer to a cs_equation_builder_t structure
  * \param[in]      dir_values  Dirichlet values associated to each face
  * \param[in]      forced_ids  indirection in case of internal enforcement
- * \param[in]      val_f_pre   face values used as the previous one
- * \param[in]      val_c_pre   cell values used as the previous one
+ * \param[in]      val_f_n     face DoFs at time step n
+ * \param[in]      val_c_n     cell DoFs at time step n
+ * \param[in]      val_f_nm1   face DoFs at time step n-1 or NULL
+ * \param[in]      val_c_nm1   cell DoFs at time step n-1 or NULL
  * \param[in, out] csys        pointer to a cellwise view of the system
  * \param[in, out] cb          pointer to a cellwise builder
  */
@@ -336,8 +334,10 @@ cs_cdofb_vecteq_init_cell_system(const cs_cell_mesh_t         *cm,
                                  const cs_equation_builder_t  *eqb,
                                  const cs_real_t               dir_values[],
                                  const cs_lnum_t               forced_ids[],
-                                 const cs_real_t               val_f_pre[],
-                                 const cs_real_t               val_c_pre[],
+                                 const cs_real_t               val_f_n[],
+                                 const cs_real_t               val_c_n[],
+                                 const cs_real_t               val_f_nm1[],
+                                 const cs_real_t               val_c_nm1[],
                                  cs_cell_sys_t                *csys,
                                  cs_cell_builder_t            *cb)
 {
@@ -360,10 +360,20 @@ cs_cdofb_vecteq_init_cell_system(const cs_cell_mesh_t         *cm,
     const cs_lnum_t  f_id = cm->f_ids[f];
     for (int k = 0; k < 3; k++) {
       csys->dof_ids[3*f + k] = 3*f_id + k;
-      if (val_f_pre != NULL)    /* Case of steady algo. */
-        csys->val_n[3*f + k] = val_f_pre[3*f_id + k];
+      if (val_f_n != NULL)    /* Case of steady algo. */
+        csys->val_n[3*f + k] = val_f_n[3*f_id + k];
     }
 
+  }
+
+  if (val_f_nm1 != NULL) { /* State at n-1 is given (2nd order time scheme) */
+    for (int f = 0; f < cm->n_fc; f++) {
+
+      const cs_lnum_t  f_id = cm->f_ids[f];
+      for (int k = 0; k < 3; k++)
+        csys->val_nm1[3*f + k] = val_f_nm1[3*f_id + k];
+
+    }
   }
 
   for (int k = 0; k < 3; k++) {
@@ -372,8 +382,10 @@ cs_cdofb_vecteq_init_cell_system(const cs_cell_mesh_t         *cm,
     const cs_lnum_t  _shift = 3*cm->n_fc + k;
 
     csys->dof_ids[_shift] = dof_id;
-    if (val_c_pre != NULL)      /* Case of steady algo. */
-      csys->val_n[_shift] = val_c_pre[dof_id];
+    if (val_c_n != NULL)      /* Case of steady algo. */
+      csys->val_n[_shift] = val_c_n[dof_id];
+    if (val_c_nm1 != NULL)
+      csys->val_nm1[_shift] = val_c_nm1[dof_id];
 
   }
 
@@ -576,40 +588,16 @@ cs_cdofb_vecteq_conv_diff_reac(const cs_equation_param_t     *eqp,
       ((cb->cell_flag & CS_FLAG_SOLID_CELL) == 0)) {  /* ADVECTION TERM
                                                        * ============== */
 
-    /* Define the local advection matrix and store the advection
-       fluxes across primal faces */
-    cs_cdofb_advection_build(eqp, cm, eqc->adv_func, cb);
+    /* Open hook: Compute the advection flux for the numerical scheme and store
+       the advection fluxes across primal faces */
+    eqc->advection_open(eqp, cm, csys, eqc->advection_input, cb);
 
-    /* Add it to the local system */
-    if (eqp->adv_scaling_property != NULL) {
+    /* Define the local advection matrix*/
+    eqc->advection_build(eqp, cm, csys, eqc->advection_scheme, cb);
 
-      if (cs_property_is_uniform(eqp->adv_scaling_property))
-        cs_sdm_scale(eqp->adv_scaling_property->ref_value, cb->loc);
-      else {
-        cs_real_t scaling = cs_property_value_in_cell(cm,
-                                                      eqp->adv_scaling_property,
-                                                      cb->t_pty_eval);
-        cs_sdm_scale(scaling, cb->loc);
-      }
-
-    }
-
-    /* Add the local advection operator to the local system */
-    const cs_real_t  *sval = cb->loc->val;
-    for (int bi = 0; bi < cm->n_fc + 1; bi++) {
-      for (int bj = 0; bj < cm->n_fc + 1; bj++) {
-
-        /* Retrieve the 3x3 matrix */
-        cs_sdm_t  *bij = cs_sdm_get_block(csys->mat, bi, bj);
-        assert(bij->n_rows == bij->n_cols && bij->n_rows == 3);
-
-        const cs_real_t  _val = sval[(cm->n_fc+1)*bi+bj];
-        bij->val[0] += _val;
-        bij->val[4] += _val;
-        bij->val[8] += _val;
-
-      }
-    }
+    /* Close hook: Modify if needed the computed advection matrix and update
+       the local system */
+    eqc->advection_close(eqp, cm, csys, cb, cb->loc);
 
 #if defined(DEBUG) && !defined(NDEBUG) && CS_CDOFB_VECTEQ_DBG > 1
     if (cs_dbg_cw_test(eqp, cm, csys))
@@ -855,6 +843,7 @@ cs_cdofb_vecteq_solve_steady_state(bool                        cur2prev,
       /* Set the local (i.e. cellwise) structures for the current cell */
       cs_cdofb_vecteq_init_cell_system(cm, eqp, eqb, dir_values, enforced_ids,
                                        eqc->face_values, fld->val,
+                                       NULL, NULL, /* no n-1 state is given */
                                        csys, cb);
 
       /* Build and add the diffusion/advection/reaction terms to the local
@@ -933,7 +922,8 @@ cs_cdofb_vecteq_solve_steady_state(bool                        cur2prev,
   cs_sles_t  *sles = cs_sles_find_or_add(eqp->sles_param.field_id, NULL);
 
   cs_equation_solve_scalar_system(3*n_faces,
-                                  eqp,
+                                  eqp->name,
+                                  eqp->sles_param,
                                   matrix,
                                   rs,
                                   normalization,
@@ -1061,6 +1051,7 @@ cs_cdofb_vecteq_solve_implicit(bool                        cur2prev,
       /* Set the local (i.e. cellwise) structures for the current cell */
       cs_cdofb_vecteq_init_cell_system(cm, eqp, eqb, dir_values, enforced_ids,
                                        eqc->face_values, fld->val,
+                                       NULL, NULL, /* no n-1 state is given */
                                        csys, cb);
 
       /* Build and add the diffusion/advection/reaction terms to the local
@@ -1163,7 +1154,8 @@ cs_cdofb_vecteq_solve_implicit(bool                        cur2prev,
   cs_sles_t  *sles = cs_sles_find_or_add(eqp->sles_param.field_id, NULL);
 
   cs_equation_solve_scalar_system(3*n_faces,
-                                  eqp,
+                                  eqp->name,
+                                  eqp->sles_param,
                                   matrix,
                                   rs,
                                   normalization,
@@ -1301,6 +1293,7 @@ cs_cdofb_vecteq_solve_theta(bool                        cur2prev,
       /* Set the local (i.e. cellwise) structures for the current cell */
       cs_cdofb_vecteq_init_cell_system(cm, eqp, eqb, dir_values, enforced_ids,
                                        eqc->face_values, fld->val,
+                                       NULL, NULL, /* no n-1 state is given */
                                        csys, cb);
 
       /* Build and add the diffusion/advection/reaction terms to the local
@@ -1435,7 +1428,8 @@ cs_cdofb_vecteq_solve_theta(bool                        cur2prev,
   cs_sles_t  *sles = cs_sles_find_or_add(eqp->sles_param.field_id, NULL);
 
   cs_equation_solve_scalar_system(3*n_faces,
-                                  eqp,
+                                  eqp->name,
+                                  eqp->sles_param,
                                   matrix,
                                   rs,
                                   normalization,
@@ -1764,148 +1758,7 @@ cs_cdofb_vecteq_init_context(const cs_equation_param_t   *eqp,
   }
 
   /* Advection part */
-  eqc->adv_func = NULL;
-  eqc->adv_func_bc = NULL;
-
-  if (cs_equation_param_has_convection(eqp)) {
-
-    cs_xdef_type_t  adv_deftype =
-      cs_advection_field_get_deftype(eqp->adv_field);
-
-    if (adv_deftype == CS_XDEF_BY_ANALYTIC_FUNCTION)
-      eqb->msh_flag |= CS_FLAG_COMP_FEQ;
-
-    /* Boundary conditions for advection */
-    eqb->bd_msh_flag |= CS_FLAG_COMP_PFQ | CS_FLAG_COMP_FEQ;
-
-    switch (eqp->adv_formulation) {
-
-    case CS_PARAM_ADVECTION_FORM_CONSERV:
-      switch (eqp->adv_scheme) {
-
-      case CS_PARAM_ADVECTION_SCHEME_UPWIND:
-        if (cs_equation_param_has_diffusion(eqp)) {
-          eqc->adv_func = cs_cdo_advection_fb_upwcsv_di;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_wdi_v;
-        }
-        else {
-          eqc->adv_func = cs_cdo_advection_fb_upwcsv;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_v;
-        }
-        break;
-      case CS_PARAM_ADVECTION_SCHEME_CENTERED:
-        if (cs_equation_param_has_diffusion(eqp)) {
-          eqc->adv_func = cs_cdo_advection_fb_cencsv_di;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_cen_wdi_v;
-        }
-        else {
-          if (! cs_equation_param_has_time(eqp)) {
-            /* Remark 5 about static condensation of paper (DiPietro, Droniou,
-             * Ern, 2015) */
-            bft_error(__FILE__, __LINE__, 0,
-                      " %s: Centered advection scheme not valid for face-based"
-                      " discretization and steady pure convection.", __func__);
-          }
-          else {
-            eqc->adv_func = cs_cdo_advection_fb_cencsv;
-            eqc->adv_func_bc = cs_cdo_advection_fb_bc_cen_v;
-          } /* else has time */
-        } /* else has diffusion */
-        break;
-
-      default:
-        bft_error(__FILE__, __LINE__, 0,
-                  " %s: Invalid advection scheme for face-based discretization",
-                  __func__);
-
-      } /* Scheme */
-      break; /* Conservative formulation */
-
-    case CS_PARAM_ADVECTION_FORM_NONCONS:
-      switch (eqp->adv_scheme) {
-
-      case CS_PARAM_ADVECTION_SCHEME_UPWIND:
-        if (cs_equation_param_has_diffusion(eqp)) {
-          eqc->adv_func = cs_cdo_advection_fb_upwnoc_di;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_wdi_v;
-        }
-        else {
-          eqc->adv_func = cs_cdo_advection_fb_upwnoc;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_v;
-        }
-        break;
-      case CS_PARAM_ADVECTION_SCHEME_CENTERED:
-        if (cs_equation_param_has_diffusion(eqp)) {
-          eqc->adv_func = cs_cdo_advection_fb_cennoc_di;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_cen_wdi_v;
-        }
-        else {
-          if (! cs_equation_param_has_time(eqp)) {
-            /* Remark 5 about static condensation of paper (DiPietro, Droniou,
-             * Ern, 2015) */
-            bft_error(__FILE__, __LINE__, 0,
-                      " %s: Centered advection scheme not valid for face-based"
-                      " discretization and steady pure convection.", __func__);
-          }
-          else {
-            eqc->adv_func = cs_cdo_advection_fb_cennoc;
-            eqc->adv_func_bc = cs_cdo_advection_fb_bc_cen_v;
-          } /* else has time */
-        } /* else has diffusion */
-        break;
-
-      default:
-        bft_error(__FILE__, __LINE__, 0,
-                  " %s: Invalid advection scheme for face-based discretization",
-                  __func__);
-
-      } /* Scheme */
-      break; /* Non-conservative formulation */
-
-    case CS_PARAM_ADVECTION_FORM_SKEWSYM:
-      switch (eqp->adv_scheme) {
-
-      case CS_PARAM_ADVECTION_SCHEME_UPWIND:
-        if (cs_equation_param_has_diffusion(eqp)) {
-          eqc->adv_func = cs_cdo_advection_fb_upwskw_di;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_skw_wdi_v;
-        }
-        else {
-          eqc->adv_func = cs_cdo_advection_fb_upwskw;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_skw_v;
-        }
-        break;
-      case CS_PARAM_ADVECTION_SCHEME_CENTERED:
-        if (cs_equation_param_has_diffusion(eqp)) {
-          eqc->adv_func = cs_cdo_advection_fb_censkw_di;
-          eqc->adv_func_bc = cs_cdo_advection_fb_bc_skw_wdi_v;
-        }
-        else {
-          /* Remark 5 about static condensation of paper (DiPietro, Droniou,
-           * Ern, 2015). Time contribution on cells only won't solve the
-           * problem */
-          bft_error(__FILE__, __LINE__, 0,
-                    " %s: Centered advection scheme not valid for face-based"
-                    " discretization pure convection.", __func__);
-        } /* else has diffusion */
-        break;
-
-      default:
-        bft_error(__FILE__, __LINE__, 0,
-                  " %s: Invalid advection scheme for face-based discretization",
-                  __func__);
-
-      } /* Scheme */
-      break; /* Skew-symmetric formulation */
-
-    default:
-      bft_error(__FILE__, __LINE__, 0,
-                " %s: Invalid type of formulation for the advection term",
-                __func__);
-
-    } /* Switch on the formulation */
-
-  }
+  cs_cdofb_set_advection_function(eqp, eqb, (cs_cdofb_priv_t *)eqc);
 
   /* Reaction term */
   if (cs_equation_param_has_reaction(eqp)) {
@@ -2222,7 +2075,6 @@ cs_cdofb_vecteq_extra_post(const cs_equation_param_t  *eqp,
                     NULL,                  // values at internal faces
                     bface_values,          // values at border faces
                     cs_shared_time_step);  // time step management structure
-
 
   BFT_FREE(postlabel);
 

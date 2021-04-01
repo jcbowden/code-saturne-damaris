@@ -62,10 +62,6 @@ BEGIN_C_DECLS
  *  See \ref cs_user_radiative_transfer for examples.
  */
 
-/*! \cond DOXYGEN_SHOULD_SKIP_THIS */
-
-/*! (DOXYGEN_SHOULD_SKIP_THIS) \endcond */
-
 /*=============================================================================
  * Public function definitions
  *============================================================================*/
@@ -119,7 +115,7 @@ cs_user_rad_transfer_absorption(const int  bc_type[],
  * The density of net radiation flux must be calculated
  * consistently with the boundary conditions of the intensity.
  * The density of net flux is the balance between the radiative
- * emiting part of a boudary face (and not the reflecting one)
+ * emiting part of a boundary face (and not the reflecting one)
  * and the radiative absorbing part.
  *
  * \param[in]   bc_type   boundary face types

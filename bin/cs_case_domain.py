@@ -406,7 +406,7 @@ class domain(base_domain):
         # Default executable
 
         self.solver_path = os.path.join(self.package_compute.get_dir("pkglibexecdir"),
-                                        "cs_solver" + self.package.config.exeext)
+                                        self.package.solver)
 
         # Preprocessor options
 
@@ -628,10 +628,14 @@ class domain(base_domain):
             elif module_name == 'neptune_cfd':
                 from code_saturne.model.XMLinitializeNeptune import XMLinitNeptune
                 XMLinitNeptune(case).initialize(prepro)
-            case.xmlSaveDocument()
 
-            case['case_path'] = self.exec_dir
-            self.mci = meg_to_c_interpreter(case, module_name=module_name)
+            # Do not call case.xmlSaveDocument() to avoid side effects in case
+            # directory; is not required as meg_to_c_interpreter works from
+            # case in memory
+
+            self.mci = meg_to_c_interpreter(case,
+                                            module_name=module_name,
+                                            wdir = os.path.join(self.exec_dir, 'src'))
 
             if self.mci.has_meg_code():
                 needs_comp = True
@@ -679,7 +683,9 @@ class domain(base_domain):
                         self.error_long += " (%d/%d) %s is not provided for %s for zone %s\n" % (i+1, mci_state['nexps'], eme['func'], eme['var'], eme['zone'])
 
                     return
-
+                elif mci_state['state'] == 2:
+                    self.error = 'saving MEG generated sources'
+                    self.error_long = ' Incorrect directory ?'
 
             log_name = os.path.join(self.exec_dir, 'compile.log')
             log = open(log_name, 'w')
@@ -830,15 +836,35 @@ class domain(base_domain):
 
         # Fixed parameter name
 
-        setup_ref = "setup.xml"
-        if self.param != None and self.param != "setup.xml":
-            link_path = os.path.join(self.exec_dir, setup_ref)
-            self.purge_result(link_path) # in case of previous run here
-            try:
-                os.symlink(self.param, link_path)
-            except Exception:
-                src_path = os.path.join(self.exec_dir, self.param)
-                shutil.copy2(src_path, link_path)
+        setup_path = os.path.join(self.exec_dir, "setup.xml")
+
+        if self.param != None:
+            param_base = os.path.basename(self.param)
+            src_path = os.path.join(self.exec_dir, param_base)
+            default_path = os.path.join(self.data_dir, 'setup.xml')
+            if param_base != "setup.xml":
+                if os.path.isfile(default_path):
+                    self.purge_result(setup_path) # in case of previous run here
+                    fmt = ('Warning:\n'
+                           '  Both {0} and {1} exist in\n'
+                           '    {2}.\n'
+                           '  {0} will be used for the computation.\n'
+                           '  Be aware that to follow best practices '
+                           'only one of the two should be present.\n\n')
+                    msg = fmt.format(os.path.basename(self.param),
+                                     os.path.basename(setup_path),
+                                     self.data_dir)
+                    print(msg, file = sys.stderr)
+                try:
+                    os.symlink(self.param, setup_path)
+                except Exception:
+                    shutil.copy2(src_path, setup_path)
+
+        if not os.path.isfile(setup_path):
+            msg  = ('Remark:\n'
+                    '  No setup.xml file was provided in the DATA folder.\n'
+                    '  Default settings will be used.\n')
+            print(msg, file = sys.stderr)
 
         if len(err_str) > 0:
             self.error = 'data preparation'
@@ -859,6 +885,24 @@ class domain(base_domain):
         """
 
         if self.mesh_input:
+            return
+
+        # Check if cartesian mesh is to be used
+        if self.param != None:
+            from code_saturne.model.XMLengine import Case
+            from code_saturne.model.SolutionDomainModel import getMeshOriginType
+
+            fp = os.path.join(self.data_dir, self.param)
+            case = Case(package=self.package, file_name=fp)
+            case['xmlfile'] = fp
+            case.xmlCleanAllBlank(case.xmlRootNode())
+
+            if getMeshOriginType(case) == 'mesh_cartesian':
+                return
+
+        # If no mesh is provided return, since user can define mesh_input
+        # using 'cs_user_mesh_input' user function.
+        if len(self.meshes) == 1 and self.meshes[0] == None:
             return
 
         # Study directory
@@ -948,27 +992,41 @@ class domain(base_domain):
 
             # Build command
 
-            cmd = [self.package.get_preprocessor()]
-
-            if (type(m) == tuple):
-                for opt in m[1:]:
-                    cmd.append(opt)
-
+            # Generate output mesh name
             if (mesh_id != None):
                 mesh_id += 1
-                cmd = cmd + ['--log', 'preprocessor_%02d.log' % (mesh_id)]
-                cmd = cmd + ['--out', os.path.join('mesh_input',
-                                                   'mesh_%02d.csm' % (mesh_id))]
-                cmd = cmd + ['--case', 'preprocessor_%02d' % (mesh_id)]
+                _outputmesh = os.path.join('mesh_input',
+                                           'mesh_%02d.csm' % (mesh_id))
             else:
-                cmd = cmd + ['--log']
-                cmd = cmd + ['--out', 'mesh_input.csm']
+                _outputmesh = 'mesh_input.csm'
 
-            cmd.append(mesh_path)
+            # Check if preprocessor is needed or not
+            if mesh_path[-4:] == ".csm":
+                # code_saturne mesh, no need to run preprocessor
+                self.symlink(mesh_path,
+                             os.path.join(self.exec_dir, _outputmesh))
 
-            # Run command
+                retcode = 0
+            else:
+                # run preprocessor if needed
 
-            retcode = run_command(cmd, pkg=self.package)
+                cmd = [self.package.get_preprocessor()]
+
+                if (type(m) == tuple):
+                    for opt in m[1:]:
+                        cmd.append(opt)
+
+                cmd = cmd + ['--out', _outputmesh]
+                if (mesh_id != None):
+                    cmd = cmd + ['--log', 'preprocessor_%02d.log' % (mesh_id)]
+                    cmd = cmd + ['--case', 'preprocessor_%02d' % (mesh_id)]
+                else:
+                    cmd = cmd + ['--log']
+
+                cmd.append(mesh_path)
+
+                # Run command
+                retcode = run_command(cmd, pkg=self.package)
 
             if retcode != 0:
                 err_str = \
@@ -1154,7 +1212,8 @@ class syrthes_domain(base_domain):
                  n_procs_weight = None,
                  n_procs_min = 1,
                  n_procs_max = None,
-                 n_procs_radiation = None):
+                 n_procs_radiation = None,
+                 verbose = True):
 
         base_domain.__init__(self,
                              package,
@@ -1197,7 +1256,7 @@ class syrthes_domain(base_domain):
 
         ld_library_path_save = os.getenv('LD_LIBRARY_PATH')
 
-        source_syrthes_env(self.package)
+        source_syrthes_env(self.package, verbose)
 
         self.ld_library_path = os.getenv('LD_LIBRARY_PATH')
 
@@ -1594,6 +1653,14 @@ class cathare_domain(domain):
         CATHARE2.
         """
 
+        msg = " ****************************************\n" \
+              "  Generating CATHARE2 .so file\n" \
+              " ****************************************\n\n"
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
+        import subprocess
+
         orig = os.getcwd()
 
         os.chdir(self.exec_dir)
@@ -1620,7 +1687,32 @@ class cathare_domain(domain):
         shell_cmd+= '${v25_3}/unix-procedur/vers.unix\n'
         shell_cmd+= 'DATAFILE=${jdd_CATHARE} make -f ${v25_3}/ICoCo/Makefile_gad lib\n'
 
-        os.system(shell_cmd)
+        # Shell
+        user_shell = os.getenv('SHELL')
+        if not user_shell:
+            user_shell = '/bin/sh'
+
+        # log
+        log = open('cathare2_so_generation.log', 'w')
+
+        p = subprocess.Popen(shell_cmd,
+                             shell=True,
+                             executable=user_shell,
+                             stdout=log,
+                             stderr=log,
+                             universal_newlines=True)
+
+        log.close()
+
+        output, errors = p.communicate()
+
+        if p.returncode != 0:
+            self.error = 'compile cathare2 lib'
+            self.error_long = 'Compilation of cathare2 .so library based on '
+            self.error_long+= '%s file failed.' % (self.cathare_case_file)
+            self.error_long+= ' Check "cathare2_so_generation.log' \
+
+
         os.chdir(orig)
 
     #---------------------------------------------------------------------------

@@ -185,9 +185,9 @@ BEGIN_C_DECLS
 /*!
   \struct cs_piso_t
 
-  \brief PISO options descriptor.
+  \brief Inner velocity/pressure iteration options descriptor.
 
-  Members of the PISO structure are publicly accessible, to allow for
+  Members of this structure are publicly accessible, to allow for
   concise  syntax, as they are expected to be used in many places.
 
   \var  cs_piso_t::nterup
@@ -200,6 +200,19 @@ BEGIN_C_DECLS
         iterative process on pressure-velocity coupling
   \var  cs_piso_t::xnrmu0
         norm of \f$ \vect{u}^0 \f$
+*/
+
+/*----------------------------------------------------------------------------*/
+
+/*!
+  \struct cs_restart_auxiliary_t
+
+  \brief Additional checkpoint/restart files
+
+  \var  cs_restart_auxiliary_t::read_auxiliary
+        activate reading of auxiliary restart file
+  \var  cs_restart_auxiliary_t::write_auxiliary
+        activate writing of auxiliary restart file
 */
 
 /*----------------------------------------------------------------------------*/
@@ -312,7 +325,7 @@ static cs_equation_param_t _equation_param_default
    .idiff  = 1,
    .idifft = 1,
    .idften = CS_ISOTROPIC_DIFFUSION,
-   .iswdyn = 0,
+   .iswdyn = -1,
    .ischcv = 1,
    .ibdtso = 1,
    .isstpc = 1,
@@ -368,6 +381,8 @@ static cs_equation_param_t _equation_param_default
    .reaction_properties = NULL,
    .n_source_terms = 0,
    .source_terms = NULL,
+   .n_volume_mass_injections = 0,
+   .volume_mass_injections = NULL,
 
    .enforcement_type = 0,
    .enforcement_ref_value = NULL,
@@ -415,7 +430,7 @@ static cs_time_scheme_t  _time_scheme =
 
 const cs_time_scheme_t  *cs_glob_time_scheme = &_time_scheme;
 
-/* PISO structure and associated pointer */
+/* Velocity/pressure inner iterations structure and associated pointer */
 
 static cs_piso_t  _piso =
 {
@@ -427,6 +442,16 @@ static cs_piso_t  _piso =
 };
 
 const cs_piso_t  *cs_glob_piso = &_piso;
+
+/* Auxiliary checkpoint/restart file parameters */
+
+static cs_restart_auxiliary_t  _restart_auxiliary =
+{
+  .read_auxiliary = 1,
+  .write_auxiliary = 1
+};
+
+cs_restart_auxiliary_t  *cs_glob_restart_auxiliary = &_restart_auxiliary;
 
 /* Definition of user variables and properties */
 
@@ -491,6 +516,10 @@ cs_f_piso_get_pointers(int     **nterup,
                        int     **n_buoyant_scal);
 
 void
+cs_f_restart_auxiliary_get_pointers(int  **ileaux,
+                                    int  **iecaux);
+
+void
 cs_f_field_get_key_struct_var_cal_opt(int                  f_id,
                                       cs_f_var_cal_opt_t  *vcopt);
 
@@ -513,7 +542,7 @@ _log_func_var_cal_opt(const void *t)
   const char fmt_i[] = N_("      %-19s  %d\n");
   const char fmt_r[] = N_("      %-19s  %-12.3g\n");
   const cs_var_cal_opt_t *_t = (const void *)t;
-  cs_log_printf(CS_LOG_SETUP, fmt_i, "iwarni", _t->iwarni);
+  cs_log_printf(CS_LOG_SETUP, fmt_i, "verbosity", _t->verbosity);
   cs_log_printf(CS_LOG_SETUP, fmt_i, "iconv ", _t->iconv );
   cs_log_printf(CS_LOG_SETUP, fmt_i, "istat ", _t->istat );
   cs_log_printf(CS_LOG_SETUP, fmt_i, "idircl", _t->idircl);
@@ -539,7 +568,6 @@ _log_func_var_cal_opt(const void *t)
   cs_log_printf(CS_LOG_SETUP, fmt_r, "epsrsm", _t->epsrsm);
   cs_log_printf(CS_LOG_SETUP, fmt_r, "epsrgr", _t->epsrgr);
   cs_log_printf(CS_LOG_SETUP, fmt_r, "climgr", _t->climgr);
-  cs_log_printf(CS_LOG_SETUP, fmt_r, "extrag", _t->extrag);
   cs_log_printf(CS_LOG_SETUP, fmt_r, "relaxv", _t->relaxv);
 }
 
@@ -554,7 +582,7 @@ _log_func_default_var_cal_opt(const void *t)
   cs_log_printf(CS_LOG_SETUP,"  var_cal_opt\n");
 
   cs_log_printf(CS_LOG_SETUP,_("    Printing\n"));
-  cs_log_printf(CS_LOG_SETUP, fmt_i, "iwarni", _t->iwarni,
+  cs_log_printf(CS_LOG_SETUP, fmt_i, "verbosity", _t->verbosity,
                 _("Verbosity level."));
 
   cs_log_printf(CS_LOG_SETUP,"    Time stepping\n");
@@ -591,8 +619,6 @@ _log_func_default_var_cal_opt(const void *t)
                 _("Number of sweeps gradient reconstruction"));
   cs_log_printf(CS_LOG_SETUP, fmt_r, "epsrgr", _t->epsrgr,
                 _("Gradient reconstruction precision"));
-  cs_log_printf(CS_LOG_SETUP, fmt_r, "extrag", _t->extrag,
-                _("[0.;1.] (gradients extrapolation)"));
   cs_log_printf(CS_LOG_SETUP, fmt_i, "imligr", _t->imligr,
                 _("< 0, 0 or 1 (gradient limitation method)"));
   cs_log_printf(CS_LOG_SETUP, fmt_r, "climgr", _t->climgr,
@@ -694,7 +720,7 @@ static void
 _var_cal_opt_to_equation_params(const cs_f_var_cal_opt_t  *vcopt,
                                 cs_equation_param_t       *eqp)
 {
-  eqp->iwarni = vcopt->iwarni;
+  eqp->verbosity = vcopt->iwarni;
   eqp->iconv  = vcopt->iconv;
   eqp->istat  = vcopt->istat;
   eqp->idircl = vcopt->idircl;
@@ -795,6 +821,25 @@ cs_f_piso_get_pointers(int     **nterup,
 }
 
 /*----------------------------------------------------------------------------
+ * Get pointers to members of the global restart_auxiliary structure.
+ *
+ * This function is intended for use by Fortran wrappers, and
+ * enables mapping to Fortran global pointers.
+ *
+ * parameters:
+ *   ileaux  --> pointer to cs_glob_restart_auxiliary->read_auxiliary
+ *   iecaux  --> pointer to cs_glob_restart_auxiliary->write_auxiliary
+ *----------------------------------------------------------------------------*/
+
+void
+cs_f_restart_auxiliary_get_pointers(int  **ileaux,
+                                    int  **iecaux)
+{
+  *ileaux = &(_restart_auxiliary.read_auxiliary);
+  *iecaux = &(_restart_auxiliary.write_auxiliary);
+}
+
+/*----------------------------------------------------------------------------
  * Copy values from cs_equation_params structure of a given field
  * to the matching Fortran var_cal_opt structure
  *
@@ -818,7 +863,7 @@ cs_f_field_get_key_struct_var_cal_opt(int                  f_id,
     = cs_field_get_key_struct_const_ptr(cs_field_by_id(f_id),
                                         c_k_id);
 
-  vcopt->iwarni = eqp->iwarni;
+  vcopt->iwarni = eqp->verbosity;
   vcopt->iconv  = eqp->iconv;
   vcopt->istat  = eqp->istat;
   vcopt->idircl = eqp->idircl;
@@ -1004,6 +1049,9 @@ cs_parameters_define_field_keys(void)
   cs_field_define_key_int("inner_flux_id", -1, CS_FIELD_VARIABLE);
   cs_field_define_key_int("boundary_flux_id", -1, CS_FIELD_VARIABLE);
 
+  /* field id of the variable associated to a given property */
+  cs_field_define_key_int("parent_field_id", -1, 0);
+
   cs_field_define_key_int("variable_id", -1, 0); /* inverse of ivarfl(ivar) */
   cs_field_define_key_int("scalar_id", -1, 0);   /* inverse of isca(iscal) */
 
@@ -1012,7 +1060,7 @@ cs_parameters_define_field_keys(void)
                              -1.e12*10., CS_FIELD_VARIABLE);
   cs_field_define_key_int("diffusivity_id", -1, CS_FIELD_VARIABLE);
   cs_field_define_key_double("diffusivity_ref",
-                             -1.e12*10., CS_FIELD_VARIABLE); /* visls0(iscal) */
+                             -1.e12*10., CS_FIELD_VARIABLE);
   cs_field_define_key_int("turbulent_diffusivity_id", -1, CS_FIELD_VARIABLE);
 
   cs_field_define_key_int("density_id", -1, CS_FIELD_VARIABLE);
@@ -1029,6 +1077,7 @@ cs_parameters_define_field_keys(void)
 
   cs_field_define_key_double("turbulent_schmidt",
                              1., CS_FIELD_VARIABLE); /* sigmas(iscal) */
+  cs_field_define_key_int("turbulent_schmidt_id", -1, CS_FIELD_VARIABLE);
 
   cs_field_define_key_int("gradient_weighting_id", -1, CS_FIELD_VARIABLE);
 
@@ -1053,7 +1102,8 @@ cs_parameters_define_field_keys(void)
 
   cs_field_define_key_int("coupling_entity", -1, 0);
 
-  /*! Is the field time-extrapolated?
+  /*
+   * Is the field time-extrapolated?
    * -1: default automatic value
    *  0: "standard" first-order: the value calculated at
    *     the beginning of the current time step (from the
@@ -1066,6 +1116,7 @@ cs_parameters_define_field_keys(void)
    *     extrapolated at $n+1$ according to the same formula
    *     as when = 1 but with \f$\theta\f$ = 1
    */
+
   cs_field_define_key_int("time_extrapolated", -1, 0);
 
   cs_field_define_key_int("measures_set_id", -1, CS_FIELD_VARIABLE);
@@ -1089,17 +1140,20 @@ cs_parameters_define_field_keys(void)
   cs_field_define_key_int("limiter_choice", -1, CS_FIELD_VARIABLE);
 
   /* Structure containing the calculation options of the field variables */
-  cs_field_define_key_struct("var_cal_opt",
-                             &_equation_param_default,
-                             _log_func_var_cal_opt,
-                             _log_func_default_var_cal_opt,
-                             sizeof(cs_var_cal_opt_t),
-                             CS_FIELD_VARIABLE);
+  cs_field_define_key_struct
+    ("var_cal_opt",
+     &_equation_param_default,
+     _log_func_var_cal_opt,
+     _log_func_default_var_cal_opt,
+     (cs_field_clear_key_struct_t *)cs_equation_param_clear,
+     sizeof(cs_var_cal_opt_t),
+     CS_FIELD_VARIABLE);
 
   /* Structure containing the solving info of the field variables
      (used for log, not setup, so set NULL setup logging function) */
   cs_field_define_key_struct("solving_info",
                              &_solving_info,
+                             NULL,
                              NULL,
                              NULL,
                              sizeof(cs_solving_info_t),
@@ -1127,6 +1181,7 @@ cs_parameters_define_field_key_gas_mix(void)
                              &_gas_mix_species_prop,
                              _log_func_gas_mix_species_prop,
                              _log_func_default_gas_mix_species_prop,
+                             NULL,
                              sizeof(cs_gas_mix_species_prop_t),
                              0);
 }

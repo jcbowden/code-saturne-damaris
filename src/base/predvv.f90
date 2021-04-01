@@ -59,6 +59,7 @@
 !> \param[in]     vel           velocity
 !> \param[in]     vela          velocity at the previous time step
 !> \param[in]     velk          velocity at the previous sub iteration (or vela)
+!> \param[in,out] da_u          diagonal part of velocity matrix
 !> \param[in]     tslagr        coupling term for the Lagrangian module
 !> \param[in]     coefav        boundary condition array for the variable
 !>                               (explicit part)
@@ -94,7 +95,7 @@ subroutine predvv &
    nvar   , nscal  , iterns ,                                     &
    ncepdp , ncesmp ,                                              &
    icepdc , icetsm , itypsm ,                                     &
-   dt     , vel    , vela   , velk   ,                            &
+   dt     , vel    , vela   , velk   , da_u   ,                   &
    tslagr , coefav , coefbv , cofafv , cofbfv ,                   &
    ckupdc , smacel , frcxt  ,                                     &
    trava  ,                   dfrcxt , tpucou , trav   ,          &
@@ -164,6 +165,7 @@ double precision cofbfv(3,3,nfabor)
 double precision vel   (3, ncelet)
 double precision velk  (3, ncelet)
 double precision vela  (3, ncelet)
+double precision da_u  (ncelet)
 
 ! Local variables
 
@@ -184,11 +186,13 @@ double precision rnorm , vitnor
 double precision romvom, drom  , rom
 double precision epsrgp, climgp, extrap, relaxp, blencp, epsilp
 double precision epsrsp
-double precision vit1  , vit2  , vit3, xkb, pip, pfac, pfac1
+double precision vit1  , vit2  , vit3, xkb, pip, pfac
 double precision cpdc11, cpdc22, cpdc33, cpdc12, cpdc13, cpdc23
 double precision d2s3  , thetap, thetp1, thets
 double precision diipbx, diipby, diipbz
 double precision dvol
+double precision eigen_vals(3)
+double precision tensor(6)
 
 double precision rvoid(1)
 
@@ -198,6 +202,7 @@ double precision, allocatable, dimension(:,:), target :: grad
 double precision, allocatable, dimension(:,:), target :: hl_exp
 double precision, dimension(:,:), allocatable :: smbr
 double precision, dimension(:,:,:), allocatable :: fimp
+double precision, dimension(:,:,:), allocatable :: fimpcp
 double precision, dimension(:,:), allocatable :: gavinj
 double precision, dimension(:,:), allocatable :: tsexp
 double precision, dimension(:,:,:), allocatable :: tsimp
@@ -225,6 +230,7 @@ double precision, dimension(:,:), pointer :: cvara_rij
 double precision, dimension(:), pointer :: viscl, visct, c_estim
 double precision, dimension(:,:), pointer :: lapla, lagr_st_vel
 double precision, dimension(:,:), pointer :: cpro_gradp
+double precision, dimension(:,:), pointer :: cpro_pred_vel
 double precision, dimension(:), pointer :: cpro_wgrec_s, wgrec_crom
 double precision, dimension(:,:), pointer :: cpro_wgrec_v
 double precision, dimension(:), pointer :: imasfl, bmasfl
@@ -293,6 +299,7 @@ endif
 ! Allocate temporary arrays
 allocate(smbr(3,ncelet))
 allocate(fimp(3,3,ncelet))
+allocate(fimpcp(3,3,ncelet))
 allocate(tsexp(3,ncelet))
 allocate(tsimp(3,3,ncelet))
 call field_get_key_struct_var_cal_opt(ivarfl(iu), vcopt_u)
@@ -575,14 +582,8 @@ if (iforbr.ge.0 .and. iterns.eq.1) then
           + diipbx*cpro_gradp(1,iel)            &
           + diipby*cpro_gradp(2,iel)            &
           + diipbz*cpro_gradp(3,iel)
-    pfac = coefa_p(ifac) +coefb_p(ifac)*pip
-    pfac1= cvar_pr(iel)                                              &
-         +(cdgfbo(1,ifac)-xyzcen(1,iel))*cpro_gradp(1,iel)           &
-         +(cdgfbo(2,ifac)-xyzcen(2,iel))*cpro_gradp(2,iel)           &
-         +(cdgfbo(3,ifac)-xyzcen(3,iel))*cpro_gradp(3,iel)
-    pfac = coefb_p(ifac)*(vcopt_p%extrag*pfac1                       &
-         +(1.d0-vcopt_p%extrag)*pfac)                                &
-         +(1.d0-coefb_p(ifac))*pfac                               &
+    pfac = coefa_p(ifac) + coefb_p(ifac)*pip
+    pfac = pfac                                                   &
          + ro0*(gx*(cdgfbo(1,ifac)-xyzp0(1))                      &
          + gy*(cdgfbo(2,ifac)-xyzp0(2))                           &
          + gz*(cdgfbo(3,ifac)-xyzp0(3)) )                         &
@@ -844,7 +845,7 @@ if ((ncepdp.gt.0).and.(iphydr.ne.1)) then
 
     call tspdcv(ncepdp, icepdc, vela, ckupdc, hl_exp)
 
-    ! If PISO-like sub-iterations, we use trava, otherwise trav
+    ! If we have inner iterations, we use trava, otherwise trav
     if(nterup.gt.1) then
       do ielpdc = 1, ncepdp
         iel    = icepdc(ielpdc)
@@ -1138,14 +1139,14 @@ if((itytur.eq.3.or.iturb.eq.23).and.iterns.eq.1) then
     ! No extrapolation of source terms
     else
 
-      ! No PISO iteration
+      ! No inner iteration
       if (nterup.eq.1) then
         do iel = 1, ncel
           do isou = 1, 3
             trav(isou,iel) = trav(isou,iel) - divt(isou,iel)
           enddo
         enddo
-      ! PISO iterations
+      ! Inner iterations
       else
         do iel = 1, ncel
           do isou = 1, 3
@@ -1453,7 +1454,7 @@ if ((iphydr.ne.1.or.igpust.ne.1)) then
 
   else
     ! Alwways in the current work array because this may be updated
-    ! during  PISO sweeps
+    ! during inner iterations
      do iel = 1, ncel
        do isou = 1, 3
          trav(isou,iel) = trav(isou,iel) + tsexp(isou,iel)
@@ -1499,20 +1500,16 @@ if (ncesmp.gt.0) then
 !       ROVSDT a chaque iteration recoit Gamma
   allocate(gavinj(3,ncelet))
   if (nterup.eq.1) then
-    call catsmv &
-  ( ncelet , ncel , ncesmp , iterns ,                           &
-    icetsm , itypsm(1,iu),                                      &
-    cell_f_vol    , vela , smacel(:,iu) , smacel(:,ipr) ,       &
-    trav   , fimp , gavinj )
+    call catsmv(ncesmp, iterns, icetsm, itypsm(1,iu),               &
+                cell_f_vol, vela, smacel(:,iu), smacel(:,ipr),      &
+                trav, fimp, gavinj)
   else
-    call catsmv &
-  ( ncelet , ncel , ncesmp , iterns ,                           &
-    icetsm , itypsm(1,iu),                                      &
-    cell_f_vol    , vela , smacel(:,iu) , smacel(:,ipr) ,       &
-    trava  , fimp  , gavinj )
+    call catsmv(ncesmp, iterns, icetsm, itypsm(1,iu),               &
+                cell_f_vol, vela, smacel(:,iu), smacel(:,ipr),      &
+                trava, fimp, gavinj)
   endif
 
-  ! At the first PISO iteration, the explicit part "Gamma u^{in}" is added
+  ! At the first inner iteration, the explicit part "Gamma u^{in}" is added
   if (iterns.eq.1) then
     ! If source terms are extrapolated, stored in fields
     if(isno2t.gt.0) then
@@ -1523,7 +1520,7 @@ if (ncesmp.gt.0) then
       enddo
 
     else
-      ! If no PISO iteration: in trav
+      ! If no inner iteration: in trav
       if (nterup.eq.1) then
         do iel = 1,ncel
           do isou = 1, 3
@@ -1550,7 +1547,7 @@ endif
 ! If source terms are extrapolated in time
 if (isno2t.gt.0) then
   thetp1 = 1.d0 + thets
-  ! If no PISO iteration: trav
+  ! If no inner iteration: trav
   if (nterup.eq.1) then
     do iel = 1, ncel
       do isou = 1, 3
@@ -1569,14 +1566,14 @@ if (isno2t.gt.0) then
 
 ! No time extrapolation
 else
-  ! No PISO iteration
+  ! No inner iteration
   if (nterup.eq.1) then
     do iel = 1, ncel
       do isou = 1, 3
         smbr(isou,iel) = trav(isou,iel)
       enddo
     enddo
-  ! PISO iterations
+  ! Inner iterations
   else
     do iel = 1, ncel
       do isou = 1, 3
@@ -1656,6 +1653,14 @@ endif
 
 if (iappel.eq.1) then
 
+  do iel = 1, ncel
+    do isou = 1, 3
+      do jsou = 1, 3
+        fimpcp(jsou,isou,iel) = fimp(jsou,isou,iel)
+      enddo
+    enddo
+  enddo
+
   iescap = iescal(iespre)
 
   ! Warning: in case of convergence estimators, eswork give the estimator
@@ -1677,6 +1682,29 @@ if (iappel.eq.1) then
    smbr   ,                                                       &
    vel    ,                                                       &
    eswork )
+
+  ! Store inverse of the diagonal velocity matrix for the
+  ! correction step if needed (otherwise dt is used)
+  if (rcfact.eq.0) then
+    do iel = 1, ncel
+      da_u(iel) = dt(iel)
+    enddo
+
+  else
+    do iel = 1, ncel
+      tensor(1) = fimp(1,1,iel)
+      tensor(2) = fimp(2,2,iel)
+      tensor(3) = fimp(3,3,iel)
+      tensor(4) = fimp(1,2,iel)
+      tensor(5) = fimp(2,3,iel)
+      tensor(6) = fimp(1,3,iel)
+      call calc_symtens_eigvals(tensor,eigen_vals)
+      da_u(iel) = crom(iel)*cell_f_vol(iel)                         &
+                  / minval(eigen_vals(1:3))
+    enddo
+  endif
+
+  call synsca(da_u)
 
   ! Velocity-pression coupling: compute the vector T, stored in tpucou,
   !  coditv is called, only one sweep is done, and tpucou is initialized
@@ -1717,7 +1745,7 @@ if (iappel.eq.1) then
    viscfi , viscbi , viscf  , viscb  , secvif , secvib ,          &
    rvoid  , rvoid  , rvoid  ,                                     &
    icvflb , ivoid  ,                                              &
-   fimp   ,                                                       &
+   fimpcp ,                                                       &
    smbr   ,                                                       &
    vect   ,                                                       &
    rvoid  )
@@ -1778,6 +1806,16 @@ else if (iappel.eq.2) then
 endif
 
 ! ---> Finilaze estimators + Printings
+
+call field_get_id_try("predicted_velocity", f_id)
+if (f_id.ge.0) then
+  call field_get_val_v(f_id, cpro_pred_vel)
+  do iel = 1, ncel
+    do isou = 1, 3
+      cpro_pred_vel(isou, iel) = vel(isou, iel)
+    enddo
+  enddo
+endif
 
 if (iappel.eq.1) then
 
@@ -1840,6 +1878,7 @@ endif
 !------------
 deallocate(smbr)
 deallocate(fimp)
+deallocate(fimpcp)
 deallocate(tsexp)
 deallocate(tsimp)
 if (allocated(viscce)) deallocate(viscce)

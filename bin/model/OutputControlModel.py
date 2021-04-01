@@ -917,9 +917,47 @@ class OutputControlModel(Model):
         self.isInList(mesh_id, self.getMeshIdList())
         associated_writer = []
         node = self.node_out.xmlGetNode('mesh', id = mesh_id)
+        writer_ids = self.getWriterIdList()
         for n in node.xmlGetNodeList('writer'):
-            associated_writer.append(n["id"])
+            writer_id = n['id']
+            if writer_id in writer_ids:
+                associated_writer.append(writer_id)
+            else:
+                # Fix for some incorrectly updated XML files
+                n.xmlRemoveNode()
         return associated_writer
+
+
+    @Variables.noUndo
+    def isVolumeWriterActive(self):
+        """
+        Check if at least one volumic mesh is associated to a writer.
+        """
+        status = False
+
+        for mesh_id in self.getMeshIdList():
+            if self.getMeshType(mesh_id) in ["cells", "VolumicZone"]:
+                if self.getAssociatedWriterIdList(mesh_id):
+                    status = True
+                    break
+
+        return status
+
+
+    @Variables.noUndo
+    def isSurfaceWriterActive(self):
+        """
+        Check if at least one surface mesh is associated to a writer.
+        """
+        status = False
+
+        for mesh_id in self.getMeshIdList():
+            if self.getMeshType(mesh_id) in ["boundary_faces", "BoundaryZone"]:
+                if self.getAssociatedWriterIdList(mesh_id):
+                    status = True
+                    break
+
+        return status
 
 
     def addAssociatedWriter(self, mesh_id, lagrangian):

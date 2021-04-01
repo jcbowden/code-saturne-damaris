@@ -1079,7 +1079,7 @@ _cell_rank_by_sfc(cs_gnum_t                 n_g_cells,
  * If face Fi is periodic with face Fj, and face Fi is adjacent to cell Ci,
  * while face Fj is adjacent to face Cj, we add Cj to Fi's adjacent cells,
  * and Ci to Fj's adjacent cells, just as if Fi and Fj were regular interior
- * faces (this ignores the geometric transformation, but is suffient to
+ * faces (this ignores the geometric transformation, but is sufficent to
  * build the cells -> cells graph for domain partitioning).
  *
  * This function should be called when faces are distributed by blocks,
@@ -1173,6 +1173,8 @@ _add_perio_to_face_cells_g(cs_block_dist_info_t  bi,
                                     send_adj,
                                     NULL);
 
+  BFT_FREE(send_adj);
+
   /* Update face -> cell connectivity */
 
   for (cs_lnum_t i = 0; i < n_b; i++) {
@@ -1180,14 +1182,22 @@ _add_perio_to_face_cells_g(cs_block_dist_info_t  bi,
     const cs_gnum_t g_cell_num = b_data[2*i + 1];
     if (g_face_cells[g_face_id*2] == 0)
       g_face_cells[g_face_id*2] = g_cell_num;
-    else {
-      assert(g_face_cells[g_face_id*2 + 1] == 0);
+    else if (g_face_cells[g_face_id*2 + 1] == 0)
       g_face_cells[g_face_id*2 + 1] = g_cell_num;
-    }
+    else if (g_face_cells[g_face_id*2 + 1] != g_cell_num)
+      bft_error(__FILE__, __LINE__, 0,
+                _("Inconsistency adding periocicity info for partitioning.\n"
+                  "Face %llu: adjacent to cells %llu and %llu,\n"
+                  "trying to add %llu instead of %llu.\n\n"
+                  "Try ignoring periodicity for partitioning."),
+                (unsigned long long)b_data[2*i],
+                (unsigned long long)g_face_cells[g_face_id*2],
+                (unsigned long long)g_face_cells[g_face_id*2+1],
+                (unsigned long long)g_cell_num,
+                (unsigned long long)g_face_cells[g_face_id*2+1]);
   }
 
   BFT_FREE(b_data);
-  BFT_FREE(send_adj);
 
   cs_all_to_all_destroy(&d);
 }
@@ -1809,33 +1819,37 @@ _scotch_cell_cells(size_t        n_cells,
   start_id = _cell_idx[0]; /* also = 0 */
   end_id = 0;
 
-  for (i = 0; i < n_cells; i++) {
+  if (_cell_neighbors != NULL) {
 
-    SCOTCH_Num j, n_prev;
+    for (i = 0; i < n_cells; i++) {
 
-    end_id = _cell_idx[i+1];
+      SCOTCH_Num j, n_prev;
 
-    _scotch_sort_shell(start_id, end_id, _cell_neighbors);
+      end_id = _cell_idx[i+1];
 
-    n_prev = _cell_neighbors[start_id];
-    _cell_neighbors[c_id] = n_prev;
-    c_id += 1;
+      _scotch_sort_shell(start_id, end_id, _cell_neighbors);
 
-    for (j = start_id + 1; j < end_id; j++) {
-      if (_cell_neighbors[j] != n_prev) {
-        n_prev = _cell_neighbors[j];
-        _cell_neighbors[c_id] = n_prev;
-        c_id += 1;
+      n_prev = _cell_neighbors[start_id];
+      _cell_neighbors[c_id] = n_prev;
+      c_id += 1;
+
+      for (j = start_id + 1; j < end_id; j++) {
+        if (_cell_neighbors[j] != n_prev) {
+          n_prev = _cell_neighbors[j];
+          _cell_neighbors[c_id] = n_prev;
+          c_id += 1;
+        }
       }
+
+      start_id = end_id;
+      _cell_idx[i+1] = c_id;
+
     }
 
-    start_id = end_id;
-    _cell_idx[i+1] = c_id;
+    if (c_id < end_id)
+      BFT_REALLOC(_cell_neighbors, c_id, SCOTCH_Num);
 
   }
-
-  if (c_id < end_id)
-    BFT_REALLOC(_cell_neighbors, c_id, SCOTCH_Num);
 
   /* Set return values */
 
@@ -2374,6 +2388,10 @@ _write_output(cs_gnum_t  n_g_cells,
                   _("The partitioning directory cannot be created"));
     }
   }
+#if defined(HAVE_MPI)
+  if (cs_glob_n_ranks > 1)
+    MPI_Barrier(cs_glob_mpi_comm);
+#endif
 
   /* Open file */
 
@@ -2394,7 +2412,7 @@ _write_output(cs_gnum_t  n_g_cells,
     MPI_Info  hints;
     MPI_Comm  block_comm, comm;
     cs_file_get_default_access(CS_FILE_MODE_WRITE, &method, &hints);
-    cs_file_get_default_comm(NULL, NULL, &block_comm, &comm);
+    cs_file_get_default_comm(NULL, &block_comm, &comm);
     assert(comm == cs_glob_mpi_comm || comm == MPI_COMM_NULL);
     fh = cs_io_initialize(filename,
                           magic_string,
@@ -2512,7 +2530,7 @@ _read_cell_rank(cs_mesh_t          *mesh,
     MPI_Info           hints;
     MPI_Comm           block_comm, comm;
     cs_file_get_default_access(CS_FILE_MODE_WRITE, &method, &hints);
-    cs_file_get_default_comm(NULL, NULL, &block_comm, &comm);
+    cs_file_get_default_comm(NULL, &block_comm, &comm);
     assert(comm == cs_glob_mpi_comm || comm == MPI_COMM_NULL);
     rank_pp_in = cs_io_initialize(file_name,
                                   magic_string,
