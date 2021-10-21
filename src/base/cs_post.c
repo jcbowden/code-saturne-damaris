@@ -7025,7 +7025,11 @@ cs_post_finalize(void)
 {
   int i, j;
   cs_post_mesh_t  *post_mesh = NULL;
-
+  
+#if defined(HAVE_DAMARIS)
+  damaris_stop();
+#endif
+  
   /* Timings */
 
   for (i = 0; i < _cs_post_n_writers; i++) {
@@ -7114,9 +7118,7 @@ cs_post_finalize(void)
 
   BFT_FREE(_cs_post_default_format_options);
 
-#if defined(HAVE_DAMARIS)
-  damaris_stop();
-#endif
+
 }
 
 /*----------------------------------------------------------------------------*/

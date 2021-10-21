@@ -1198,7 +1198,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	BFT_MALLOC(sectn_sizes, cs_glob_n_ranks, int  );
 	// This gets the n_sections
 	MPI_Allgather(&n_sections, 1, MPI_INT, sectn_sizes, 1, MPI_INT, w->damaris_mpi_comm);
-	sectn_offsets[0] = 0l ;
+	sectn_offsets[0] = 0ul ;
 	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
 	{
 		sectn_offsets[t1] = sectn_offsets[t1-1] + sectn_sizes[t1-1];
@@ -1206,7 +1206,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 
 
-   /*  The following are used for the vertex coordinate offsets and the
+  /*  The following are used for the vertex coordinate offsets and the
 	*  vertex GIDs. Vertex coordinate offsets need to be multiplied by the mesh dimension (2D or 3D)
 	*  n_vertices_total is the size of: unstructured_gid and unstructured_mesh_xyz (== n_vertices_totalx3)
 	*/
@@ -1219,7 +1219,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	BFT_MALLOC(vertices_rank_sizes, cs_glob_n_ranks, unsigned long );
 	// This gets the n_sections
 	MPI_Allgather(&n_vertices, 1, MPI_UNSIGNED_LONG, vertices_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
-	vertices_rank_offsets[0] = 0l ;
+	vertices_rank_offsets[0] = 0ul ;
 	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
 	{
 		vertices_rank_offsets[t1] = vertices_rank_offsets[t1-1] + vertices_rank_sizes[t1-1];
@@ -1227,7 +1227,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 
 
 	/*  The following are used for the vertex connectivity data
-	*   The connectivity offsets are the positions of the first element of the ranks
+	*   The connectivity offsets are the positions of the first element of the ranks subset of conectivities
 	*   Each section of the mesh on a rank contributes n_elements * element stride values.
 	*   n_connectivity_total is the total size required for the variable to hold the connectivities
 	*/
@@ -1240,7 +1240,7 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	BFT_MALLOC(connectivity_rank_sizes, cs_glob_n_ranks, unsigned long );
 	// This gets the n_connectivity of each rank, which is the size of the connectivity of all sections on the current rank
 	MPI_Allgather(&n_connectivity, 1, MPI_UNSIGNED_LONG, connectivity_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
-	connectivity_rank_offsets[0] = 0l ;
+	connectivity_rank_offsets[0] = 0ul ;
 	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
 	{
 		connectivity_rank_offsets[t1] = connectivity_rank_offsets[t1-1] + connectivity_rank_sizes[t1-1];
@@ -1253,19 +1253,22 @@ fvm_to_damaris_export_nodal(void               *this_writer_p,
 	MPI_Allreduce(&n_elements_local, &n_elements_total, 1, MPI_UNSIGNED_LONG, MPI_SUM, w->damaris_mpi_comm) ;
 	// Need to check for overflow of integer type as Damaris paramaters are not long int capable.
 	if (n_elements_local > INT_MAX) {
-		bft_error(__FILE__, __LINE__, -1, _("ERROR: OVERFLOW Detected. Parameter: n_elements_local \n Damaris Parameters should be in range of C type int"));
+		bft_error(__FILE__, __LINE__, -1, _("ERROR: OVERFLOW Detected. Parameter: n_elements_local \n \
+		                                     Damaris Parameters should be in range of C type int"));
 	}
 	if (n_elements_total > INT_MAX) {
-		bft_error(__FILE__, __LINE__, -1, _("ERROR: OVERFLOW Detected. Parameter: n_elements_total \n Damaris Parameters should be in range of C type int"));
+		bft_error(__FILE__, __LINE__, -1, _("ERROR: OVERFLOW Detected. Parameter: n_elements_total \n \
+                                         Damaris Parameters should be in range of C type int"));
 	}
 
 	unsigned long * elements_rank_offsets ;  // to be computed - Probably could use MPI_Scan()?
 	BFT_MALLOC(elements_rank_offsets, cs_glob_n_ranks, unsigned long );
 	unsigned long * elements_rank_sizes ;    // to be gathered from each client rank
 	BFT_MALLOC(elements_rank_sizes, cs_glob_n_ranks, unsigned long );
-	// This gets the n_connectivity of each rank, which is the size of the connectivity of all sections on the current rank
+  // This gets the vector of elements_rank_sizes of each rank, which is the number of elements of all sections on the current rank
 	MPI_Allgather(&n_elements_local, 1, MPI_UNSIGNED_LONG, elements_rank_sizes, 1, MPI_UNSIGNED_LONG, w->damaris_mpi_comm);
-	elements_rank_offsets[0] = 0l ;
+	elements_rank_offsets[0] = 0ul ;
+  // This is a sum scan of the element sizes to be used as offsets if saving the full element data
 	for (int t1 = 1 ; t1 < cs_glob_n_ranks; t1++)
 	{
 		elements_rank_offsets[t1] = elements_rank_offsets[t1-1] + elements_rank_sizes[t1-1];
